@@ -26,11 +26,12 @@
 
 (defun grove-ui-capture-action (&optional offline)
   "Return the existing Org capture action.
-When OFFLINE is non-nil, retain and wake the action for one day so a cached
-widget tap can reach Emacs after process death."
+When OFFLINE is non-nil, retain the action for one day.  Wake Emacs when the
+session granted that capability; otherwise queue it for the next connection."
   (if offline
       (jetpacs-action "org.capture.show"
-                      :when-offline 'wake :ttl-s 86400)
+                      :when-offline (jetpacs-durable-offline-policy)
+                      :ttl-s 86400)
     (jetpacs-action "org.capture.show")))
 
 (defun grove-ui--item-open-action (item-id)
@@ -38,14 +39,14 @@ widget tap can reach Emacs after process death."
   (jetpacs-shell-action-opening-surface
    "grove.agenda.item.open" grove-app-surface
    :args (list :item-id item-id)
-   :when-offline 'wake :ttl-s 86400))
+   :when-offline (jetpacs-durable-offline-policy) :ttl-s 86400))
 
 (defun grove-ui--item-done-action (item-id)
   "Return a durable, deduplicated mark-done action for ITEM-ID."
   (jetpacs-action
    "grove.agenda.done"
    :args (list :item-id item-id)
-   :when-offline 'wake :ttl-s 86400
+   :when-offline (jetpacs-durable-offline-policy) :ttl-s 86400
    :dedupe (concat "grove-done-" item-id)))
 
 (defun grove-ui--item-meta (item)

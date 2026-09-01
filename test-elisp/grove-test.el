@@ -138,8 +138,23 @@
     (let* ((capture (grove-widgets-capture-surface))
            (tap (plist-get (plist-get capture :body) :on_tap)))
       (should (equal (plist-get tap :action) "org.capture.show"))
-      (should (equal (plist-get tap :when_offline) "wake"))
+      ;; Hermetic tests have no live grant, so durable actions must queue.
+      (should (equal (plist-get tap :when_offline) "queue"))
       (should (= (plist-get tap :ttl_s) 86400)))))
+
+(ert-deftest grove-durable-actions-wake-only-when-granted ()
+  "Grove remains profile-valid when a Companion cannot wake Emacs."
+  (cl-letf (((symbol-function 'jetpacs-granted-p)
+             (lambda (&rest _) nil)))
+    (let ((action (grove-navigation--notebook-action "notebook-a")))
+      (should (equal (plist-get action :when_offline) "queue"))
+      (should-not (jetpacs-gate-descriptor-policy action))))
+  (cl-letf (((symbol-function 'jetpacs-granted-p)
+             (lambda (capability &optional _client)
+               (equal capability "offline.wake"))))
+    (let ((action (grove-navigation--notebook-action "notebook-a")))
+      (should (equal (plist-get action :when_offline) "wake"))
+      (should-not (jetpacs-gate-descriptor-policy action)))))
 
 (ert-deftest grove-item-actions-resolve-current-opaque-identities ()
   "Open and Done resolve private refs in Emacs and reject vanished rows."

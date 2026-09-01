@@ -56,7 +56,8 @@ CONFIRM, when non-nil, is the platform confirmation text."
   (jetpacs-action
    "grove.outline.mutate"
    :args (grove-structure--identity-args notebook-id record operation)
-   :when-offline 'wake :ttl-s grove-structure--action-ttl-seconds
+   :when-offline (jetpacs-durable-offline-policy)
+   :ttl-s grove-structure--action-ttl-seconds
    :confirm confirm))
 
 (defun grove-structure-swipe-start (notebook-id record)

@@ -109,21 +109,24 @@ configuration contains no Android identity or protocol state."
   "Return a durable run action for saved VIEW."
   (jetpacs-action
    "grove.view.run" :args (list :view-id (plist-get view :id))
-   :when-offline 'wake :ttl-s grove-views--action-ttl-seconds))
+   :when-offline (jetpacs-durable-offline-policy)
+   :ttl-s grove-views--action-ttl-seconds))
 
 (defun grove-views-save-action (mode)
   "Return an action saving the captured search input in MODE."
   (jetpacs-action
    "grove.view.save" :args (list :mode mode)
    :capture-fields '("grove-search-query")
-   :when-offline 'wake :ttl-s grove-views--action-ttl-seconds))
+   :when-offline (jetpacs-durable-offline-policy)
+   :ttl-s grove-views--action-ttl-seconds))
 
 (defun grove-views--delete-action (view)
   "Return a confirmed delete action for phone-authored VIEW."
   (jetpacs-action
    "grove.view.delete" :args (list :view-id (plist-get view :id))
    :confirm (format "Delete saved view ‘%s’?" (plist-get view :label))
-   :when-offline 'wake :ttl-s grove-views--action-ttl-seconds))
+   :when-offline (jetpacs-durable-offline-policy)
+   :ttl-s grove-views--action-ttl-seconds))
 
 (defun grove-views--kind-label (view)
   "Return a concise source/kind label for VIEW."

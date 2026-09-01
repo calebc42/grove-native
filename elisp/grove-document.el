@@ -74,7 +74,7 @@
    "grove.document.open"
    :args (list :notebook-id notebook-id :heading-id heading-id)
    :open-surface grove-app-surface
-   :when-offline 'wake :ttl-s 86400))
+   :when-offline (jetpacs-durable-offline-policy) :ttl-s 86400))
 
 (defun grove-document--set-current (notebook-id heading-id)
   "Select NOTEBOOK-ID and HEADING-ID and produce its current snapshot."
@@ -191,7 +191,8 @@ Return a handler status."
                      "grove.document.todo"
                      :args (list :notebook-id notebook-id
                                  :heading-id heading-id :state "done")
-                     :when-offline 'wake :ttl-s 86400
+                     :when-offline (jetpacs-durable-offline-policy)
+                     :ttl-s 86400
                      :dedupe (jetpacs-wire-id "grove-doc-done" heading-id))))
          (swipe (and done
                      (jetpacs-swipe

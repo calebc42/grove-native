@@ -87,7 +87,8 @@
   "Return action opening NOTEBOOK-ID's Grove outline."
   (jetpacs-action
    "grove.notebook.open" :args (list :notebook-id notebook-id)
-   :when-offline 'wake :ttl-s 86400 :open-surface grove-app-surface))
+   :when-offline (jetpacs-durable-offline-policy) :ttl-s 86400
+   :open-surface grove-app-surface))
 
 (defun grove-navigation--notebook-menu (record)
   "Return safe management menu for notebook RECORD."
@@ -284,7 +285,8 @@
                         "grove.document.todo"
                         :args (list :notebook-id grove-navigation--notebook-id
                                     :heading-id id :state "done")
-                        :when-offline 'wake :ttl-s 86400
+                        :when-offline (jetpacs-durable-offline-policy)
+                        :ttl-s 86400
                         :dedupe (jetpacs-wire-id "grove-outline-done" id))))
             (plan
              (jetpacs-action
