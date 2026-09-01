@@ -27,6 +27,7 @@
 (require 'grove-org)
 (require 'grove-structure)
 (require 'grove-ui)
+(require 'grove-views)
 
 (defconst grove-navigation-destinations
   '((:key "notebooks" :label "Notebooks" :icon "folder"
@@ -473,36 +474,61 @@
   "Build Grove's search screen from its explicit snapshot."
   (let* ((snapshot (grove-library-search-snapshot))
          (query (plist-get snapshot :query))
-         (mode (plist-get snapshot :mode))
+         (mode (if (member (plist-get snapshot :mode) '("text" "match"))
+                   (plist-get snapshot :mode)
+                 "text"))
          (results (plist-get snapshot :results))
          (children
-          (list
-           (jetpacs-text-input
-            "grove-search-query" :value query
-            :label (if (equal mode "match") "Org match expression"
-                     "Text, Boolean, or {regexp} search")
-            :leading-icon "search" :single-line t :max-length 512
-            :on-submit
-            (jetpacs-action "grove.search.run"
-                            :args (list :mode mode)))
-           (jetpacs-row
-            (jetpacs-button
-             "Text / regexp"
-             (jetpacs-action "grove.search.mode"
-                             :args (list :mode "text"))
-             :variant (if (equal mode "text") "filled" "text"))
-            (jetpacs-button
-             "Org match"
-             (jetpacs-action "grove.search.mode"
-                             :args (list :mode "match"))
-             :variant (if (equal mode "match") "filled" "text"))
-            :spacing 6)
-           (jetpacs-button
-            "Search"
-            (jetpacs-action "grove.search.run"
-                            :args (list :mode mode)
-                            :capture-fields '("grove-search-query"))
-            :icon "search" :variant "tonal"))))
+          (append
+           (grove-views-nodes)
+           (list
+            (jetpacs-section-header "Search")
+            (when-let* ((label (plist-get snapshot :view-label)))
+              (jetpacs-card
+               (jetpacs-row
+                (jetpacs-icon "bookmark" :content-description "Active saved view")
+                (jetpacs-column
+                 (jetpacs-text label :max-lines 2)
+                 (jetpacs-text
+                  (if (equal (plist-get snapshot :view-source) "emacs")
+                      "Read-only Emacs custom agenda"
+                    "Grove saved view")
+                  :style "caption" :max-lines 1)
+                 :spacing 2)
+                :spacing 8 :align "center")
+               :variant "filled"))
+            (jetpacs-text-input
+             "grove-search-query" :value query
+             :label (if (equal mode "match") "Org match expression"
+                      "Text, Boolean, or {regexp} search")
+             :leading-icon "search" :single-line t :max-length 512
+             :on-submit
+             (jetpacs-action "grove.search.run"
+                             :args (list :mode mode)))
+            (jetpacs-row
+             (jetpacs-button
+              "Text / regexp"
+              (jetpacs-action "grove.search.mode"
+                              :args (list :mode "text"))
+              :variant (if (equal mode "text") "filled" "text"))
+             (jetpacs-button
+              "Org match"
+              (jetpacs-action "grove.search.mode"
+                              :args (list :mode "match"))
+              :variant (if (equal mode "match") "filled" "text"))
+             :spacing 6)
+            (jetpacs-row
+             (jetpacs-button
+              "Search"
+              (jetpacs-action "grove.search.run"
+                              :args (list :mode mode)
+                              :capture-fields '("grove-search-query"))
+              :icon "search" :variant "tonal")
+             (jetpacs-button
+              "Save view" (grove-views-save-action mode)
+              :icon "bookmark_add" :variant "text")
+             :spacing 6)))))
+    (setq children (delq nil children))
     (when-let* ((error (plist-get snapshot :error)))
       (setq children
             (append children
@@ -521,12 +547,15 @@
             (setq children
                   (append children
                           (list (grove-navigation--search-result-card record))))))))
-     ((not (string-blank-p query))
+     ((or (plist-get snapshot :view-id) (not (string-blank-p query)))
       (setq children
             (append children
                     (list (jetpacs-empty-state
                            :icon "search_off" :title "No matches"
-                           :caption "Try another text or Org match expression.")))))
+                           :caption
+                           (if (plist-get snapshot :view-id)
+                               "This saved view currently has no matching headings."
+                             "Try another text or Org match expression."))))))
      (t
       (setq children
             (append children
@@ -778,9 +807,7 @@
   "Switch to ARGS' search mode and refresh PARAMS' surface."
   (let ((mode (plist-get args :mode)))
     (if (not (member mode '("text" "match"))) 'rejected
-      (let ((snapshot (grove-library-search-snapshot)))
-        (setq grove-library--search-snapshot
-              (plist-put snapshot :mode mode)))
+      (grove-library-search-set-mode mode)
       (jetpacs-app-defer-refresh params)
       'accepted)))
 

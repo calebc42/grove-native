@@ -428,10 +428,43 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                 grove-library--documents)
        (grove-library-document-refresh notebook-id heading-id))))
 
-(defun grove-library-search (query mode)
+(defun grove-library--search-results (raw)
+  "Convert canonical Org search RAW rows into Grove-safe result records."
+  (unless (plist-get grove-library--snapshot :notebooks)
+    (grove-library-refresh))
+  (let (results)
+    (dolist (row raw)
+      (let* ((ref (copy-tree (alist-get 'ref row)))
+             (file (plist-get ref :file))
+             (notebook-id (and file (grove-library--notebook-id file)))
+             (notebook (and notebook-id
+                            (grove-library--notebook-record notebook-id))))
+        (when notebook
+          (let ((heading-id (grove-library--heading-id ref)))
+            (puthash (grove-library--heading-key notebook-id heading-id)
+                     ref grove-library--heading-refs)
+            (push (list :notebook-id notebook-id :heading-id heading-id
+                        :headline (or (alist-get 'headline row) "Untitled")
+                        :todo (alist-get 'todo row)
+                        :priority (alist-get 'priority row)
+                        :tags (append (alist-get 'tags row) nil)
+                        :notebook-label (plist-get notebook :label))
+                  results)))))
+    (nreverse results)))
+
+(defun grove-library--search-view-members (view)
+  "Return presentation-safe active-view members from optional VIEW."
+  (when view
+    (list :view-id (plist-get view :id)
+          :view-label (plist-get view :label)
+          :view-source (plist-get view :source)
+          :view-kind (plist-get view :kind))))
+
+(defun grove-library-search (query mode &optional view)
   "Replace Grove's search snapshot using QUERY and MODE.
-MODE is the string \"text\" or \"match\".  A failed expression retains the
-last successful result rows and records a safe validation error."
+MODE is the string \"text\" or \"match\".  Optional VIEW identifies a saved
+view that invoked the query.  A failed expression retains the last successful
+result rows and records a safe validation error."
   (unless (and (stringp query) (member mode '("text" "match")))
     (user-error "Search requires text or match mode and a string query"))
   (if (string-blank-p query)
@@ -443,43 +476,78 @@ last successful result rows and records a safe validation error."
     (condition-case err
         (let ((raw (jetpacs-org-mode-search-items
                     query (if (equal mode "match") 'match 'text)
-                    grove-search-result-limit))
-              results)
-          (unless (plist-get grove-library--snapshot :notebooks)
-            (grove-library-refresh))
-          (dolist (row raw)
-            (let* ((ref (copy-tree (alist-get 'ref row)))
-                   (file (plist-get ref :file))
-                   (notebook-id (and file (grove-library--notebook-id file)))
-                   (notebook (and notebook-id
-                                  (grove-library--notebook-record notebook-id))))
-              (when notebook
-                (let ((heading-id (grove-library--heading-id ref)))
-                  (puthash (grove-library--heading-key notebook-id heading-id)
-                           ref grove-library--heading-refs)
-                  (push (list :notebook-id notebook-id :heading-id heading-id
-                              :headline (or (alist-get 'headline row) "Untitled")
-                              :todo (alist-get 'todo row)
-                              :priority (alist-get 'priority row)
-                              :tags (append (alist-get 'tags row) nil)
-                              :notebook-label (plist-get notebook :label))
-                        results)))))
+                    grove-search-result-limit)))
           (setq grove-library--search-snapshot
-                (list :query query :mode mode :results (nreverse results)
-                      :error nil))
+                (append
+                 (list :query query :mode mode
+                       :results (grove-library--search-results raw)
+                       :error nil)
+                 (grove-library--search-view-members view)))
           (run-hooks 'grove-library-after-refresh-hook)
           t)
       (error
        (message "grove-library: search failed (%s)" (car err))
        (setq grove-library--search-snapshot
-             (plist-put
-              (plist-put
-               (plist-put (copy-tree grove-library--search-snapshot)
-                          :query query)
-               :mode mode)
-              :error "Invalid search expression"))
+             (append
+              (list :query query :mode mode
+                    :results
+                    (plist-get grove-library--search-snapshot :results)
+                    :error "Invalid search expression")
+              (grove-library--search-view-members view)))
        (run-hooks 'grove-library-after-refresh-hook)
        nil))))
+
+(defun grove-library-custom-view-search (view-id label kind)
+  "Run opaque Org custom VIEW-ID, displaying LABEL and KIND.
+Native Org settings and ordering come from Jetpacs' reusable custom-view
+projection.  Failure retains the last successful rows behind a safe error."
+  (unless (and (stringp view-id) (stringp label) (stringp kind))
+    (user-error "Custom view identity is invalid"))
+  (condition-case err
+      (let ((raw (jetpacs-org-mode-custom-view-items
+                  view-id grove-search-result-limit)))
+        (setq grove-library--search-snapshot
+              (list :query "" :mode "text"
+                    :results (grove-library--search-results raw)
+                    :error nil :view-id view-id :view-label label
+                    :view-source "emacs" :view-kind kind))
+        (run-hooks 'grove-library-after-refresh-hook)
+        t)
+    (ebp-org-unresolved (signal (car err) (cdr err)))
+    (error
+     (message "grove-library: custom view failed (%s)" (car err))
+     (setq grove-library--search-snapshot
+           (list :query "" :mode "text"
+                 :results (plist-get grove-library--search-snapshot :results)
+                 :error "Saved view is unavailable"
+                 :view-id view-id :view-label label
+                 :view-source "emacs" :view-kind kind))
+     (run-hooks 'grove-library-after-refresh-hook)
+     nil)))
+
+(defun grove-library-search-set-mode (mode)
+  "Set Grove search MODE and clear any saved-view attribution."
+  (unless (member mode '("text" "match"))
+    (user-error "Search mode must be text or match"))
+  (setq grove-library--search-snapshot
+        (list :query (or (plist-get grove-library--search-snapshot :query) "")
+              :mode mode
+              :results (plist-get grove-library--search-snapshot :results)
+              :error (plist-get grove-library--search-snapshot :error)))
+  (run-hooks 'grove-library-after-refresh-hook)
+  t)
+
+(defun grove-library-clear-active-view (view-id)
+  "Clear saved-view attribution when it currently names VIEW-ID."
+  (when (equal view-id (plist-get grove-library--search-snapshot :view-id))
+    (setq grove-library--search-snapshot
+          (list :query (or (plist-get grove-library--search-snapshot :query) "")
+                :mode (or (plist-get grove-library--search-snapshot :mode)
+                          "text")
+                :results (plist-get grove-library--search-snapshot :results)
+                :error (plist-get grove-library--search-snapshot :error)))
+    (run-hooks 'grove-library-after-refresh-hook))
+  t)
 
 (defun grove-library-toggle-favorite (notebook-id)
   "Persistently toggle NOTEBOOK-ID in Grove's Customize-backed favorites."

@@ -31,6 +31,7 @@
 (require 'grove-ui)
 (require 'grove-document)
 (require 'grove-structure)
+(require 'grove-views)
 (require 'grove-navigation)
 (require 'grove-widgets)
 
@@ -141,6 +142,7 @@
      :doc "Move the current Org heading to its configured done state"))
   (grove-navigation-register)
   (grove-structure-register)
+  (grove-views-register)
   (grove-document-register)
   (grove-widgets-register)
   (jetpacs-defapp "grove"
@@ -167,6 +169,7 @@
   (setq grove--push-timer nil)
   (grove-navigation-unregister)
   (grove-structure-unregister)
+  (grove-views-unregister)
   (grove-document-unregister)
   (grove-org-unregister)
   (grove-library-reset)

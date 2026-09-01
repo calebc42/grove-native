@@ -14,7 +14,10 @@ information architecture and visual workflows.
   flat-list option, favorites, folder drill-down, and safe create, rename,
   move, and recoverable-trash operations.
 - A collapsible native outline with preface and body previews, TODO metadata,
-  heading navigation, and Grove's reveal-first/deep-commit swipe behavior.
+  heading navigation, Grove's reveal-first/deep-commit swipe behavior, and
+  revision-bound insert/move/promote/demote/duplicate/refile/archive/delete
+  operations. Copy/cut state, refile destinations, focus, and one-level undo
+  remain private to Emacs.
 - Grove-native read and edit modes. Read mode uses Jetpacs' neutral Org
   renderer under a surface-local link presenter; edit mode uses the shared Org
   toolbar and a stale-revision guard before a durable Emacs save.
@@ -24,6 +27,10 @@ information architecture and visual workflows.
 - Native Org search: text/Boolean/brace-regexp queries use `org-search-view`,
   while structured tag, TODO, and property matches use `org-tags-view`.
   Invalid expressions keep the last valid result set visible.
+- Hybrid saved views: searches authored on the phone persist as ordinary
+  Customize data, while compatible built-in single commands from
+  `org-agenda-custom-commands` appear read-only. Custom keys, matchers,
+  settings, file names, and functions are never sent to Android.
 - Grove presentation settings backed by Customize, plus persistent opaque
   notebook favorites.
 - The sectioned Agenda, Org capture FAB, richer multi-action swipe, and live
@@ -71,6 +78,8 @@ bounds. The full variables remain ordinary Customize options:
 - `grove-reader-default-mode`
 - `grove-reader-show-drawers`
 - `grove-search-result-limit`
+- `grove-saved-views`
+- `grove-saved-view-limit`
 - `grove-org-agenda-days`
 - `grove-org-agenda-item-limit`
 
@@ -89,7 +98,6 @@ gates with:
 ```
 
 The original Kotlin app remains the visual and workflow acceptance reference.
-Useful future UI slices include structural outline move/copy/refile commands,
-saved searches, reminder-resolution flows, and the richer lead-time calendar
-visualization. Their semantics should continue to come from Emacs or reusable
-Jetpacs platform seams.
+Useful future UI slices include reminder-resolution flows and the richer
+lead-time/month-calendar visualization. Their semantics should continue to
+come from Emacs or reusable Jetpacs platform seams.

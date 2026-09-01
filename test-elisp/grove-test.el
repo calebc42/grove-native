@@ -172,6 +172,7 @@
                                 "grove.agenda.item.open" "grove.agenda.done")
                               grove-navigation--verbs
                               grove-structure--verbs
+                              grove-views--verbs
                               grove-document--verbs))
           (should (gethash name jetpacs-action-handlers)))
         (should (assoc grove-capture-widget-surface jetpacs-shell--roots))
@@ -184,6 +185,7 @@
                                 "grove.agenda.item.open" "grove.agenda.done")
                               grove-navigation--verbs
                               grove-structure--verbs
+                              grove-views--verbs
                               grove-document--verbs))
           (should-not (gethash name jetpacs-action-handlers))))
     (grove-register)))
@@ -384,6 +386,112 @@
                   (should (equal (plist-get failed :error)
                                  "Invalid search expression")))))))
       (delete-directory root t))))
+
+(ert-deftest grove-saved-views-combine-customize-and-read-only-emacs-views ()
+  "Hybrid view rows stay bounded and custom agenda internals remain private."
+  (let ((grove-saved-views '(("Needles" "text" "private phone query")))
+        (grove-saved-view-limit 8)
+        (grove-library--search-snapshot
+         '(:query "private phone query" :mode "text" :results nil
+                  :error nil)))
+    (cl-letf (((symbol-function 'jetpacs-org-mode-custom-views)
+               (lambda ()
+                 '((:id "org-custom-view-safe" :label "Work agenda"
+                        :kind "tags-todo")))))
+      (let* ((snapshot (grove-views-snapshot))
+             (views (plist-get snapshot :views))
+             (phone (car views))
+             (emacs (cadr views))
+             (run (grove-views-run-action emacs))
+             (json (jetpacs-node->canonical-json
+                    (grove-navigation-search-screen nil))))
+        (should (= (length views) 2))
+        (should (equal (plist-get phone :source) "grove"))
+        (should (equal (plist-get emacs :source) "emacs"))
+        (should (equal (plist-get run :args)
+                       '(:view-id "org-custom-view-safe")))
+        (should (string-search "Work agenda" json))
+        (should (string-search "Read-only" json))
+        (should-not (string-search "org-agenda-custom-commands" json))
+        (should (jetpacs-check-profile
+                 (grove-navigation-search-screen nil) 'app))))))
+
+(ert-deftest grove-saved-view-actions-resolve-live-config-and-persist ()
+  "Phone views save/delete locally and both sources run by opaque identity."
+  (let ((grove-saved-views nil)
+        (grove-saved-view-limit 8)
+        persisted phone-run custom-run deferred notified)
+    (cl-letf (((symbol-function 'customize-save-variable)
+               (lambda (_symbol value) (setq persisted (copy-tree value))))
+              ((symbol-function 'jetpacs-org-mode-custom-views)
+               (lambda ()
+                 '((:id "org-custom-view-work" :label "Work"
+                        :kind "tags"))))
+              ((symbol-function 'grove-library-search)
+               (lambda (&rest args) (setq phone-run args) t))
+              ((symbol-function 'grove-library-custom-view-search)
+               (lambda (&rest args) (setq custom-run args) t))
+              ((symbol-function 'grove-library-clear-active-view)
+               (lambda (_id) t))
+              ((symbol-function 'jetpacs-app-defer-refresh)
+               (lambda (_params) (setq deferred t)))
+              ((symbol-function 'jetpacs-shell-notify)
+               (lambda (&rest args) (setq notified args))))
+      (let* ((phone (grove-views--add "Inbox" "match" "+inbox"))
+             (phone-id (plist-get phone :id)))
+        (should (equal persisted '(("Inbox" "match" "+inbox"))))
+        (should-error (grove-views--add "inbox" "text" "duplicate")
+                      :type 'user-error)
+        (should (eq (grove-views--on-run
+                     (list :view-id phone-id) '(:surface "app:grove"))
+                    'accepted))
+        (should (equal (seq-take phone-run 2) '("+inbox" "match")))
+        (should (eq (grove-views--on-run
+                     '(:view-id "org-custom-view-work")
+                     '(:surface "app:grove"))
+                    'accepted))
+        (should (equal custom-run
+                       '("org-custom-view-work" "Work" "tags")))
+        (should (eq (grove-views--on-delete
+                     (list :view-id phone-id) '(:surface "app:grove"))
+                    'accepted))
+        (should-not grove-saved-views)
+        (should deferred)
+        (should (equal notified '("Saved view deleted" "app:grove")))
+        (should (eq (grove-views--on-delete
+                     '(:view-id "org-custom-view-work")
+                     '(:surface "app:grove"))
+                    'rejected))))))
+
+(ert-deftest grove-save-view-flow-captures-query-but-never-authors-it-in-action ()
+  "Save uses field capture, validates natively, and prompts outside dispatch."
+  (let ((grove-saved-views nil)
+        continuation validated persisted searched)
+    (cl-letf (((symbol-function 'jetpacs-flow-continue)
+               (lambda (function) (setq continuation function)))
+              ((symbol-function 'jetpacs-dialog-can-bridge-p) (lambda () t))
+              ((symbol-function 'read-string) (lambda (&rest _) "My view"))
+              ((symbol-function 'jetpacs-org-mode-search-items)
+               (lambda (&rest args) (setq validated args) nil))
+              ((symbol-function 'customize-save-variable)
+               (lambda (_symbol value) (setq persisted (copy-tree value))))
+              ((symbol-function 'grove-library-search)
+               (lambda (&rest args) (setq searched args) t))
+              ((symbol-function 'jetpacs-app-defer-refresh) #'ignore)
+              ((symbol-function 'jetpacs-shell-notify) #'ignore))
+      (let ((action (grove-views-save-action "text")))
+        (should (equal (plist-get action :args) '(:mode "text")))
+        (should-not (string-search "needle" (prin1-to-string action))))
+      (should (eq (grove-views--on-save
+                   '(:mode "text")
+                   '(:surface "app:grove"
+                     :fields (:grove-search-query "needle")))
+                  'accepted))
+      (should continuation)
+      (funcall continuation)
+      (should (equal validated '("needle" text 100)))
+      (should (equal persisted '(("My view" "text" "needle"))))
+      (should (equal (seq-take searched 2) '("needle" "text"))))))
 
 (ert-deftest grove-document-subtree-save-rolls-back-pre-durability-failure ()
   "A failed prewrite restores the entire live Org buffer exactly."
