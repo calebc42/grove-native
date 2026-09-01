@@ -35,9 +35,12 @@ emacs -Q --batch \
   --eval "(setq byte-compile-error-on-warn t byte-compile-dest-file-function (lambda (file) (expand-file-name (concat (file-name-nondirectory file) \"c\") (getenv \"GROVE_COMPILE_OUTPUT\"))))" \
   -f batch-byte-compile \
   "$grove_root/elisp/grove-core.el" \
+  "$grove_root/elisp/grove-library.el" \
   "$grove_root/elisp/grove-org.el" \
   "$grove_root/elisp/grove-ui.el" \
+  "$grove_root/elisp/grove-document.el" \
+  "$grove_root/elisp/grove-navigation.el" \
   "$grove_root/elisp/grove-widgets.el" \
   "$grove_root/elisp/grove.el"
 
-test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 5
+test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 8

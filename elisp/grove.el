@@ -7,9 +7,9 @@
 
 ;; Grove rebuilt as a Tier-1 Jetpacs applet.  Emacs Org remains the parser,
 ;; agenda engine, capture engine, state owner, and mutation authority.  Grove
-;; contributes the mobile information architecture and presentation: an
-;; Agenda-first app surface, capture affordances, rich reveal-first swipes,
-;; and two generic Glance widget surfaces.
+;; contributes the mobile information architecture and presentation: a
+;; Notebooks-first app surface, native outline/reader/editor/search screens,
+;; capture affordances, rich reveal-first swipes, and two generic widgets.
 
 ;;; Code:
 
@@ -22,13 +22,15 @@
 (require 'ebp-org)
 (require 'jetpacs-apps)
 (require 'jetpacs-chrome)
-(require 'jetpacs-navigate)
 (require 'jetpacs-shell)
 (require 'jetpacs-surfaces)
 (require 'jetpacs-widgets)
 (require 'grove-core)
+(require 'grove-library)
 (require 'grove-org)
 (require 'grove-ui)
+(require 'grove-document)
+(require 'grove-navigation)
 (require 'grove-widgets)
 
 (defvar grove--push-timer nil
@@ -67,8 +69,8 @@
       (jetpacs-app-defer-refresh params)
       'accepted))))
 
-(defun grove--on-item-open (args _params)
-  "Resolve ARGS' opaque item id and present its Org heading in Grove."
+(defun grove--on-item-open (args params)
+  "Resolve ARGS' item id and present it on PARAMS' Grove surface."
   (let ((item-id (plist-get args :item-id)))
     (cond
      ((not (stringp item-id)) 'rejected)
@@ -76,16 +78,14 @@
      (t
       (condition-case nil
           (let* ((ref (grove-org-ref-for-id item-id))
-                 (marker (ebp-org-resolve-ref ref))
-                 (buffer (marker-buffer marker))
-                 (position (marker-position marker))
-                 (label (plist-get ref :headline)))
-            (set-marker marker nil)
-            (jetpacs-flow-continue
-             (lambda ()
-               (jetpacs-navigate-buffer
-                buffer grove-app-surface label position)))
-            'accepted)
+                 (file (plist-get ref :file))
+                 (notebook-id (grove-library--notebook-id file))
+                 (heading-id (grove-library--heading-id ref)))
+            (unless (grove-library-resolve-notebook notebook-id)
+              (signal 'ebp-org-unresolved nil))
+            (puthash (grove-library--heading-key notebook-id heading-id)
+                     ref grove-library--heading-refs)
+            (grove-document-open notebook-id heading-id params))
         (ebp-org-unresolved 'stale)
         (ebp-org-refused 'rejected))))))
 
@@ -115,10 +115,13 @@
   "Register Grove's app, actions, Org adapter, and widget roots idempotently."
   (remove-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
   (add-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
+  (remove-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
+  (add-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
   ;; Keep the literal owner visible to Jetpacs' static applet inventory; the
   ;; constant above remains the runtime identity used everywhere else.
   (with-jetpacs-owner "grove"
-    (jetpacs-chrome-define-root "grove" "agenda" #'grove-ui-screen
+    (jetpacs-chrome-define-root "grove" "notebooks"
+                                #'grove-navigation-notebooks-screen
                                 :required t)
     (jetpacs-defaction
      "grove.agenda.refresh" #'grove--on-refresh
@@ -135,22 +138,35 @@
      "grove.agenda.done" #'grove--on-item-done
      :args '((:name item-id :type "ref" :required t))
      :doc "Move the current Org heading to its configured done state"))
+  (grove-navigation-register)
+  (grove-document-register)
   (grove-widgets-register)
   (jetpacs-defapp "grove"
                   :label grove-title
                   :icon grove-icon
                   :surfaces '("grove")
+                  :chrome 'primary
+                  :dock-core nil
+                  :drawer-core '("eval")
+                  :fab #'grove-navigation-capture-fab
+                  :home-route "notebooks"
+                  :destinations grove-navigation-destinations
                   :order 45)
   (grove-org-register)
+  (grove-library-refresh)
   t)
 
 (defun grove-unregister ()
   "Remove every Grove registration, hook, timer, and private snapshot."
   (remove-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
+  (remove-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
   (when (timerp grove--push-timer)
     (cancel-timer grove--push-timer))
   (setq grove--push-timer nil)
+  (grove-navigation-unregister)
+  (grove-document-unregister)
   (grove-org-unregister)
+  (grove-library-reset)
   (grove-widgets-unregister)
   (dolist (name '("grove.agenda.refresh" "grove.agenda.select"
                   "grove.agenda.item.open" "grove.agenda.done"))
@@ -165,6 +181,7 @@
 (defun grove ()
   "Open Grove on the connected Jetpacs device."
   (interactive)
+  (jetpacs-apps-seed-current grove-owner "notebooks")
   (jetpacs-chrome-reset-screens grove-owner))
 
 (defun grove-unload-function ()

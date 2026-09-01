@@ -25,6 +25,7 @@
 (require 'ebp-org)
 (require 'jetpacs-org-reminders)
 (require 'grove-core)
+(require 'grove-library)
 
 (defcustom grove-org-agenda-days 8
   "Number of calendar days represented in Grove's agenda snapshot."
@@ -229,8 +230,10 @@ The returned plist is a copy and never belongs in a Jetpacs node tree."
       (copy-tree (plist-get row :ref)))))
 
 (defun grove-org--run-scheduled-refresh ()
-  "Run and clear Grove's coalesced background agenda refresh."
+  "Run and clear Grove's coalesced library and agenda refresh."
   (setq grove-org--refresh-timer nil)
+  (grove-library-reset-projections)
+  (grove-library-refresh)
   (grove-org-refresh))
 
 (defun grove-org-schedule-refresh (&rest _ignored)
