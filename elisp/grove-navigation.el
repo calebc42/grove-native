@@ -22,6 +22,7 @@
 (require 'jetpacs-shell)
 (require 'jetpacs-widgets)
 (require 'grove-core)
+(require 'grove-design)
 (require 'grove-document)
 (require 'grove-library)
 (require 'grove-org)
@@ -271,6 +272,17 @@
 (defun grove-navigation-notebooks-screen (back)
   "Build Grove's Notebooks-first root screen with BACK."
   (grove-navigation--notebooks-screen-for-folder nil back))
+
+(defun grove-navigation--present-notebooks-screen-for-folder (folder-id back)
+  "Build FOLDER-ID's profile-selected Notebooks screen with BACK."
+  (let ((screen (grove-navigation--notebooks-screen-for-folder folder-id back)))
+    (if (jetpacs-extension-advertised-p "jetpacs.design" :app)
+        (grove-design-present-screen screen 'notebooks)
+      screen)))
+
+(defun grove-navigation-presented-notebooks-screen (back)
+  "Build the profile-selected root Notebooks screen with BACK."
+  (grove-navigation--present-notebooks-screen-for-folder nil back))
 
 (defun grove-navigation--outline-children (records parent-id)
   "Build RECORDS whose parent is PARENT-ID recursively."
@@ -681,7 +693,7 @@
           (grove-navigation--surface params)
           (jetpacs-wire-id "grove-folder" folder-id)
           (apply-partially
-           #'grove-navigation--notebooks-screen-for-folder folder-id))))
+           #'grove-navigation--present-notebooks-screen-for-folder folder-id))))
       'accepted)))
 
 (defun grove-navigation--on-view-toggle (_args params)
@@ -917,12 +929,13 @@
                        "grove.notebooks.open"
                        (lambda (_args params)
                          (grove-navigation-open-destination
-                          "notebooks" "notebooks" #'grove-navigation-notebooks-screen params)))
+                          "notebooks" "notebooks"
+                          #'grove-navigation-presented-notebooks-screen params)))
                       (jetpacs-defaction
                        "grove.agenda.open"
                        (lambda (_args params)
                          (grove-navigation-open-destination
-                          "agenda" "agenda" #'grove-ui-screen params)))
+                          "agenda" "agenda" #'grove-ui-presented-screen params)))
                       (jetpacs-defaction
                        "grove.search.open"
                        (lambda (_args params)

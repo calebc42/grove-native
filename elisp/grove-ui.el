@@ -19,6 +19,7 @@
 (require 'jetpacs-shell)
 (require 'jetpacs-widgets)
 (require 'grove-core)
+(require 'grove-design)
 (require 'grove-org)
 
 (defvar grove-agenda-range "today"
@@ -225,6 +226,13 @@ opening.  RICH-SWIPE enables the app-only reveal-first swipe actions."
       "Capture" (grove-ui-capture-action)
       :icon "add" :variant "filled" :expanded "auto")
      :on-refresh (jetpacs-action "grove.agenda.refresh"))))
+
+(defun grove-ui-presented-screen (back)
+  "Build Agenda with BACK for the advertised app design extension."
+  (let ((screen (grove-ui-screen back)))
+    (if (jetpacs-extension-advertised-p "jetpacs.design" :app)
+        (grove-design-present-screen screen 'agenda)
+      screen)))
 
 (provide 'grove-ui)
 ;;; grove-ui.el ends here

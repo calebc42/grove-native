@@ -43,6 +43,14 @@
                      :priority nil :tags nil :file-label "travel.org" :time nil
                      :date "2026-09-02" :type "deadline" :section "TOMORROW"))))
 
+(defun grove-test--library-snapshot ()
+  "Return a populated Notebooks fixture without private paths."
+  '(:notebooks
+    ((:id "root-note" :folder-id nil :label "Inbox"
+          :file-label "inbox.org" :folder-label "Notebooks"
+          :favorite nil))
+    :folders nil :total-count 1 :truncated nil :error nil))
+
 (ert-deftest grove-org-refresh-builds-stable-private-snapshot ()
   "The producer deduplicates, sorts, and keeps Org refs out of rendered IR."
   (let* ((file "/tmp/private-vault/work.org")
@@ -103,6 +111,73 @@
     (should
      (equal (jetpacs-node->canonical-json (grove-ui-screen nil))
             (jetpacs-node->canonical-json (grove-ui-screen nil))))))
+
+(ert-deftest grove-agenda-selects-deterministic-design-or-exact-material ()
+  "Agenda follows the app extension profile without forking its data model."
+  (let ((grove-org--snapshot (grove-test--snapshot))
+        (grove-agenda-range "today")
+        calls)
+    (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+               (lambda (&rest args)
+                 (push args calls)
+                 nil)))
+      (let ((first (grove-ui-presented-screen nil))
+            (second (grove-ui-presented-screen nil))
+            (material (grove-ui-screen nil)))
+        (should (equal first material))
+        (should (equal (jetpacs-node->canonical-json first)
+                       (jetpacs-node->canonical-json second)))
+        (should-not (string-search
+                     "jetpacs.design_scope"
+                     (jetpacs-node->canonical-json first)))))
+    (should (member '("jetpacs.design" :app) calls))
+    (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+               (lambda (extension target)
+                 (and (equal extension "jetpacs.design")
+                      (eq target :app)))))
+      (let* ((first (grove-ui-presented-screen nil))
+             (second (grove-ui-presented-screen nil))
+             (json (jetpacs-node->canonical-json first)))
+        (should (equal (plist-get first :t) "jetpacs.design_scope"))
+        (should (string-search "jetpacs.pressable" json))
+        (should (string-search "#F3EDE1" json))
+        (should (string-search "grove.agenda.select" json))
+        (should (string-search "grove-item-a" json))
+        (should (jetpacs-check-profile first 'app))
+        (should (equal json (jetpacs-node->canonical-json second)))
+        (should (<= (jetpacs-node-wire-bytes first) 262144))))))
+
+(ert-deftest grove-notebooks-selects-deterministic-design-or-exact-material ()
+  "Notebooks keeps its Material tree as the exact unadvertised fallback."
+  (let ((grove-library-tree-view t)
+        (grove-library--snapshot (grove-test--library-snapshot))
+        calls)
+    (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+               (lambda (&rest args)
+                 (push args calls)
+                 nil)))
+      (let ((first (grove-navigation-presented-notebooks-screen nil))
+            (second (grove-navigation-presented-notebooks-screen nil))
+            (material (grove-navigation-notebooks-screen nil)))
+        (should (equal first material))
+        (should (equal (jetpacs-node->canonical-json first)
+                       (jetpacs-node->canonical-json second)))))
+    (should (member '("jetpacs.design" :app) calls))
+    (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+               (lambda (extension target)
+                 (and (equal extension "jetpacs.design")
+                      (eq target :app)))))
+      (let* ((first (grove-navigation-presented-notebooks-screen nil))
+             (second (grove-navigation-presented-notebooks-screen nil))
+             (json (jetpacs-node->canonical-json first)))
+        (should (equal (plist-get first :t) "jetpacs.design_scope"))
+        (should (string-search "jetpacs.pressable" json))
+        (should (string-search "#8A5A2B" json))
+        (should (string-search "grove.notebook.open" json))
+        (should (string-search "root-note" json))
+        (should (jetpacs-check-profile first 'app))
+        (should (equal json (jetpacs-node->canonical-json second)))
+        (should (<= (jetpacs-node-wire-bytes first) 262144))))))
 
 (ert-deftest grove-agenda-row-uses-reveal-first-deep-commit-swipe ()
   "A normal swipe reveals two actions; only the deeper gesture commits Done."

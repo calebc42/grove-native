@@ -26,6 +26,7 @@
 (require 'jetpacs-surfaces)
 (require 'jetpacs-widgets)
 (require 'grove-core)
+(require 'grove-design)
 (require 'grove-library)
 (require 'grove-org)
 (require 'grove-ui)
@@ -124,7 +125,7 @@
   ;; constant above remains the runtime identity used everywhere else.
   (with-jetpacs-owner "grove"
     (jetpacs-chrome-define-root "grove" "notebooks"
-                                #'grove-navigation-notebooks-screen
+                                #'grove-navigation-presented-notebooks-screen
                                 :required t)
     (jetpacs-defaction
      "grove.agenda.refresh" #'grove--on-refresh
