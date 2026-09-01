@@ -70,17 +70,26 @@
         :heading-id (plist-get coordinates :heading-id)))
 
 (defun grove-reminders--remote-action
-    (name coordinates ttl &optional open-surface dedupe)
+    (name coordinates ttl &optional open-surface dedupe extra-args)
   "Build NAME for COORDINATES with TTL.
 OPEN-SURFACE is the optional receiver-local app target and DEDUPE is an
-optional durable occurrence key."
+optional durable occurrence key.  EXTRA-ARGS is an optional trusted plist
+authored from the reminder projection."
   (jetpacs-action
    name
-   :args (grove-reminders--action-args coordinates)
+   :args (append (grove-reminders--action-args coordinates) extra-args)
    :when-offline (grove-reminders--offline-policy)
    :ttl-s ttl
    :dedupe dedupe
    :open-surface open-surface))
+
+(defun grove-reminders--planning-focus (candidate)
+  "Return the planning target represented by reminder CANDIDATE."
+  (if (and (stringp (plist-get candidate :type))
+           (string-match-p "deadline"
+                           (downcase (plist-get candidate :type))))
+      "deadline"
+    "scheduled"))
 
 (defun grove-reminders--body (candidate)
   "Return safe supporting text for neutral Org CANDIDATE."
@@ -122,7 +131,9 @@ RICH-ACTIONS means the live session granted `reminders.actions'."
                    "Reschedule"
                    (grove-reminders--remote-action
                     "grove.reminder.reschedule" coordinates 86400
-                    grove-app-surface)
+                    grove-app-surface nil
+                    (list :focus
+                          (grove-reminders--planning-focus candidate)))
                    :icon "edit")))))
       (jetpacs-make-node
        nil
@@ -228,7 +239,8 @@ authoritative empty set."
       (grove-document-open-planning
        (plist-get coordinates :notebook-id)
        (plist-get coordinates :heading-id)
-       params)
+       params
+       (plist-get args :focus))
     'stale))
 
 (defconst grove-reminders--verbs

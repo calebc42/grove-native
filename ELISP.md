@@ -21,9 +21,13 @@ information architecture and visual workflows.
 - Grove-native read and edit modes. Read mode uses Jetpacs' neutral Org
   renderer under a surface-local link presenter; edit mode uses the shared Org
   toolbar and a stale-revision guard before a durable Emacs save.
-- One scheduling canvas for SCHEDULED and DEADLINE. Both captured values are
-  revision-checked and committed in one atomic Org mutation, including
-  repeater cookies.
+- One scheduling canvas for SCHEDULED and DEADLINE, with an active-target
+  switch, combined month calendar, date range, profile-gated endpoint colors,
+  bounded date-only agenda marks, quick picks, lead-time feedback, and a
+  deadline-derived suggestion. Both captured values are revision-checked and
+  committed in one atomic Org mutation, including repeater cookies. Older
+  month-grid member profiles receive colored mark fallbacks instead of
+  `day_styles`.
 - Native Org search: text/Boolean/brace-regexp queries use `org-search-view`,
   while structured tag, TODO, and property matches use `org-tags-view`.
   Invalid expressions keep the last valid result set visible.
@@ -89,6 +93,7 @@ bounds. The full variables remain ordinary Customize options:
 - `grove-saved-view-limit`
 - `grove-org-agenda-days`
 - `grove-org-agenda-item-limit`
+- `grove-org-planning-mark-limit`
 - `grove-reminders-enabled`
 - `grove-reminder-horizon-hours`
 - `grove-reminder-lead-minutes`
@@ -108,6 +113,6 @@ gates with:
 ```
 
 The original Kotlin app remains the visual and workflow acceptance reference.
-The next useful UI slice is the richer lead-time/month-calendar visualization;
-its date semantics should continue to come from Emacs or reusable Jetpacs
-platform seams.
+The next useful planning slice is structured time-range and repeater controls;
+their timestamp semantics should continue to come from Emacs or reusable
+Jetpacs platform seams.

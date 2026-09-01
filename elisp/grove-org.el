@@ -37,6 +37,13 @@
   :type '(integer 1 512)
   :group 'grove)
 
+(defcustom grove-org-planning-mark-limit 512
+  "Maximum number of agenda occurrences scanned for planning-calendar marks.
+The resulting projection contains only ISO dates and capped occurrence counts;
+headlines, paths, and Org references never enter planning screen state."
+  :type '(integer 1 2048)
+  :group 'grove)
+
 (defconst grove-org--weekdays
   ["Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday"]
   "Locale-independent weekday labels used by Grove's visual language.")
@@ -71,13 +78,67 @@
           (string-to-number (match-string 3 date))
           (string-to-number (match-string 1 date)))))
 
+(defun grove-org-date-valid-p (date)
+  "Return non-nil when DATE is a real ISO Gregorian calendar date."
+  (when-let* ((parts (grove-org--date-parts date)))
+    (calendar-date-is-valid-p parts)))
+
+(defun grove-org-month-valid-p (month)
+  "Return non-nil when MONTH has the canonical YYYY-MM form."
+  (and (stringp month)
+       (string-match-p
+        "\\`[0-9]\\{4\\}-\\(?:0[1-9]\\|1[0-2]\\)\\'" month)))
+
 (defun grove-org--date-delta (date today)
   "Return DATE's signed day offset from TODAY, or nil.
 DATE and TODAY are ISO calendar dates."
-  (when-let* ((date-parts (grove-org--date-parts date))
+  (when-let* (((grove-org-date-valid-p date))
+              ((grove-org-date-valid-p today))
+              (date-parts (grove-org--date-parts date))
               (today-parts (grove-org--date-parts today)))
     (- (calendar-absolute-from-gregorian date-parts)
        (calendar-absolute-from-gregorian today-parts))))
+
+(defun grove-org-date-shift (date days)
+  "Return ISO DATE shifted by integer DAYS, or nil for invalid input."
+  (when (and (grove-org-date-valid-p date) (integerp days))
+    (pcase-let* ((absolute
+                  (+ (calendar-absolute-from-gregorian
+                      (grove-org--date-parts date))
+                     days))
+                 (`(,month ,day ,year)
+                  (calendar-gregorian-from-absolute absolute)))
+      (format "%04d-%02d-%02d" year month day))))
+
+(defun grove-org--agenda-item-date (item)
+  "Return ITEM's canonical ISO occurrence date, or nil."
+  (let ((date (alist-get 'date item))
+        (absolute (alist-get 'ts-date item)))
+    (cond
+     ((grove-org-date-valid-p date) date)
+     ((numberp absolute)
+      (pcase-let ((`(,month ,day ,year)
+                    (calendar-gregorian-from-absolute absolute)))
+        (format "%04d-%02d-%02d" year month day))))))
+
+(defun grove-org-planning-marks (month)
+  "Return bounded agenda occurrence counts for ISO MONTH.
+The result is a date-sorted alist of (YYYY-MM-DD . COUNT), with COUNT capped
+at three to match the neutral month-grid mark grammar.  This producer performs
+the Org agenda read; planning builders only consume its explicit result."
+  (unless (grove-org-month-valid-p month)
+    (error "Grove planning marks: invalid month %S" month))
+  (let ((counts (make-hash-table :test #'equal)))
+    (dolist (item
+             (seq-take (jetpacs-org-mode-agenda-items
+                        'month (concat month "-01"))
+                       grove-org-planning-mark-limit))
+      (when-let* ((date (grove-org--agenda-item-date item))
+                  ((string-prefix-p month date)))
+        (puthash date (min 3 (1+ (gethash date counts 0))) counts)))
+    (let (marks)
+      (maphash (lambda (date count) (push (cons date count) marks)) counts)
+      (sort marks (lambda (left right) (string< (car left) (car right)))))))
 
 (defun grove-org--section-label (date today type)
   "Return Grove's ledger section for agenda DATE, TODAY, and TYPE."

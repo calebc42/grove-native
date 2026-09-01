@@ -45,6 +45,13 @@
 (defvar grove-document--planning nil
   "Current planning draft and source revision.")
 
+(defconst grove-document--planning-fields
+  '("grove-scheduled" "grove-deadline")
+  "Field ids captured by every planning action that can refresh the screen.")
+
+(defconst grove-document--planning-focuses '("scheduled" "deadline")
+  "Closed set of planning targets authored by Grove.")
+
 (defvar grove-navigation--notebook-id nil
   "Notebook selected by Grove navigation, declared here for link handoff.")
 
@@ -152,12 +159,14 @@ Return a handler status."
            (jetpacs-chip scheduled :icon "schedule"
                          :on-tap (jetpacs-action
                                   "grove.document.planning"
-                                  :args identity)))
+                                  :args (append identity
+                                                '(:focus "scheduled")))))
          (when-let* ((deadline (plist-get info :deadline)))
            (jetpacs-chip deadline :icon "event_busy"
                          :on-tap (jetpacs-action
                                   "grove.document.planning"
-                                  :args identity)))))
+                                  :args (append identity
+                                                '(:focus "deadline")))))))
       (when properties
         (jetpacs-collapsible
          "grove-document-properties"
@@ -496,24 +505,93 @@ entire buffer, point, restriction, and modified flag exactly."
   (let ((value (plist-get (plist-get params :fields) key)))
     (if (stringp value) value fallback)))
 
+(defun grove-document--planning-date (stamp)
+  "Return STAMP's real ISO calendar date, or nil."
+  (when-let* ((date (ebp-org-ts-date stamp))
+              ((grove-org-date-valid-p date)))
+    date))
+
+(defun grove-document--planning-time-valid-p (time)
+  "Return non-nil when TIME is a canonical 24-hour HH:MM value."
+  (and (stringp time)
+       (string-match
+        "\\`\\([0-9]\\{2\\}\\):\\([0-9]\\{2\\}\\)\\'" time)
+       (< (string-to-number (match-string 1 time)) 24)
+       (< (string-to-number (match-string 2 time)) 60)))
+
+(defun grove-document--planning-month-for
+    (scheduled deadline focus today)
+  "Choose a deterministic month from the planning pair and TODAY.
+SCHEDULED or DEADLINE wins according to FOCUS, followed by the other field."
+  (let ((preferred (if (equal focus "deadline") deadline scheduled))
+        (other (if (equal focus "deadline") scheduled deadline)))
+    (substring (or (grove-document--planning-date preferred)
+                   (grove-document--planning-date other)
+                   (and (grove-org-date-valid-p today) today)
+                   "1970-01-01")
+               0 7)))
+
+(defun grove-document--planning-refresh-marks ()
+  "Replace the current planning draft's bounded, privacy-safe month marks."
+  (when grove-document--planning
+    (let ((month (plist-get grove-document--planning :month)))
+      (setq grove-document--planning
+            (plist-put
+             grove-document--planning :marks
+             (condition-case err
+                 (grove-org-planning-marks month)
+               (error
+                ;; Agenda errors can contain paths or heading text.  Keep the
+                ;; calendar usable and report only the condition class.
+                (message "grove: planning marks unavailable (%s)" (car err))
+                nil)))))))
+
+(defun grove-document--planning-merge-captured (params)
+  "Merge both planning fields captured in PARAMS into the current draft."
+  (let ((scheduled
+         (grove-document--planning-field
+          params :grove-scheduled
+          (plist-get grove-document--planning :scheduled)))
+        (deadline
+         (grove-document--planning-field
+          params :grove-deadline
+          (plist-get grove-document--planning :deadline))))
+    (setq grove-document--planning
+          (plist-put grove-document--planning :scheduled scheduled))
+    (setq grove-document--planning
+          (plist-put grove-document--planning :deadline deadline))
+    (cons scheduled deadline)))
+
 (defun grove-document--open-planning (args params)
   "Initialize ARGS' planning canvas on PARAMS' surface."
   (let ((notebook-id (plist-get args :notebook-id))
-        (heading-id (plist-get args :heading-id)))
+        (heading-id (plist-get args :heading-id))
+        (focus (or (plist-get args :focus) "scheduled")))
     (cond
-     ((not (and (stringp notebook-id) (stringp heading-id))) 'rejected)
+     ((not (and (stringp notebook-id) (stringp heading-id)
+                (member focus grove-document--planning-focuses)))
+      'rejected)
      ((jetpacs-event-stale-p params) 'stale)
      (t
       (condition-case err
           (let ((info (progn
                         (grove-document--set-current notebook-id heading-id)
-                        (grove-document--current-info))))
+                        (grove-document--current-info)))
+                (today (format-time-string "%Y-%m-%d")))
+            (let ((scheduled (or (plist-get info :scheduled) ""))
+                  (deadline (or (plist-get info :deadline) "")))
             (setq grove-document--planning
                   (list :notebook-id (plist-get info :notebook-id)
                         :heading-id (plist-get info :heading-id)
                         :revision (plist-get info :revision)
-                        :scheduled (or (plist-get info :scheduled) "")
-                        :deadline (or (plist-get info :deadline) "")))
+                        :scheduled scheduled
+                        :deadline deadline
+                        :focus focus
+                        :today today
+                        :month (grove-document--planning-month-for
+                                scheduled deadline focus today)
+                        :marks nil)))
+            (grove-document--planning-refresh-marks)
             (jetpacs-flow-continue
              (lambda ()
                (jetpacs-chrome-push-screen
@@ -526,19 +604,25 @@ entire buffer, point, restriction, and modified flag exactly."
          (message "grove: planning open failed (%s)" (car err))
          'rejected))))))
 
-(defun grove-document-open-planning (notebook-id heading-id &optional params)
+(defun grove-document-open-planning
+    (notebook-id heading-id &optional params focus)
   "Open the planning canvas for opaque NOTEBOOK-ID and HEADING-ID.
 PARAMS is the originating action context when one exists.  This public seam
 lets context-less platform gestures reuse Grove's normal planning workflow
-without duplicating its Org resolution or screen state."
+without duplicating its Org resolution or screen state.  FOCUS optionally
+selects the `scheduled' or `deadline' editor."
   (grove-document--open-planning
-   (list :notebook-id notebook-id :heading-id heading-id)
+   (list :notebook-id notebook-id :heading-id heading-id :focus focus)
    params))
 
 (defun grove-document--stamp-replace-date (stamp date)
   "Return STAMP with its date replaced by DATE."
   (if (and (stringp stamp)
-           (string-match "[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" stamp))
+           (string-match
+            "[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?:[ \\t]+[[:alpha:]]+\\)?"
+            stamp))
+      ;; A weekday token is decorative Org syntax.  Drop it when the date
+      ;; changes rather than leaving a now-false weekday beside the new date.
       (replace-match date t t stamp)
     date))
 
@@ -552,51 +636,104 @@ without duplicating its Org resolution or screen state."
   "Merge picker ARGS with the pair draft captured in PARAMS."
   (let* ((field (plist-get args :field))
          (kind (plist-get args :kind))
-         (value (plist-get args :value))
-         (scheduled (grove-document--planning-field
-                     params :grove-scheduled
-                     (plist-get grove-document--planning :scheduled)))
-         (deadline (grove-document--planning-field
-                    params :grove-deadline
-                    (plist-get grove-document--planning :deadline))))
+         (value (plist-get args :value)))
     (cond
      ((null grove-document--planning) 'stale)
      ((not (and (member field '("scheduled" "deadline"))
-                (member kind '("date" "time")) (stringp value)))
+                (member kind '("date" "time"))
+                (if (equal kind "date")
+                    (grove-org-date-valid-p value)
+                  (grove-document--planning-time-valid-p value))))
       'rejected)
      ((jetpacs-event-stale-p params) 'stale)
      (t
-      (let* ((old (if (equal field "scheduled") scheduled deadline))
+      (pcase-let* ((`(,scheduled . ,deadline)
+                    (grove-document--planning-merge-captured params))
+                   (old (if (equal field "scheduled") scheduled deadline))
              (new (if (equal kind "date")
                       (grove-document--stamp-replace-date old value)
                     (grove-document--stamp-replace-time old value))))
-        (plist-put grove-document--planning :scheduled
-                   (if (equal field "scheduled") new scheduled))
-        (plist-put grove-document--planning :deadline
-                   (if (equal field "deadline") new deadline))
+        (setq grove-document--planning
+              (plist-put grove-document--planning :scheduled
+                         (if (equal field "scheduled") new scheduled)))
+        (setq grove-document--planning
+              (plist-put grove-document--planning :deadline
+                         (if (equal field "deadline") new deadline)))
+        (setq grove-document--planning
+              (plist-put grove-document--planning :focus field))
+        (when (equal kind "date")
+          (let ((month (substring value 0 7)))
+            (unless (equal month
+                           (plist-get grove-document--planning :month))
+              (setq grove-document--planning
+                    (plist-put grove-document--planning :month month))
+              (grove-document--planning-refresh-marks))))
         (jetpacs-app-defer-refresh params)
         'accepted)))))
+
+(defun grove-document--on-planning-focus (args params)
+  "Select ARGS' planning field while preserving captured edits in PARAMS."
+  (let ((field (plist-get args :field)))
+    (cond
+     ((null grove-document--planning) 'stale)
+     ((not (member field grove-document--planning-focuses)) 'rejected)
+     ((jetpacs-event-stale-p params) 'stale)
+     (t
+      (pcase-let* ((`(,scheduled . ,deadline)
+                    (grove-document--planning-merge-captured params))
+                   (value (if (equal field "scheduled")
+                              scheduled deadline))
+                   (date (grove-document--planning-date value)))
+        (setq grove-document--planning
+              (plist-put grove-document--planning :focus field))
+        (when (and date
+                   (not (equal (substring date 0 7)
+                               (plist-get grove-document--planning :month))))
+          (setq grove-document--planning
+                (plist-put grove-document--planning :month
+                           (substring date 0 7)))
+          (grove-document--planning-refresh-marks))
+        (jetpacs-app-defer-refresh params)
+        'accepted)))))
+
+(defun grove-document--on-planning-month (args params)
+  "Browse to the ISO month injected into ARGS, preserving fields in PARAMS."
+  (let ((month (plist-get args :value)))
+    (cond
+     ((null grove-document--planning) 'stale)
+     ((not (grove-org-month-valid-p month)) 'rejected)
+     ((jetpacs-event-stale-p params) 'stale)
+     (t
+      (grove-document--planning-merge-captured params)
+      (setq grove-document--planning
+            (plist-put grove-document--planning :month month))
+      (grove-document--planning-refresh-marks)
+      (jetpacs-app-defer-refresh params)
+      'accepted))))
 
 (defun grove-document--on-planning-clear (args params)
   "Clear ARGS' field while retaining the other value from PARAMS."
   (let ((field (plist-get args :field)))
     (cond
      ((null grove-document--planning) 'stale)
-     ((not (member field '("scheduled" "deadline"))) 'rejected)
+     ((not (member field '("scheduled" "deadline" "both"))) 'rejected)
      ((jetpacs-event-stale-p params) 'stale)
      (t
-      (plist-put grove-document--planning :scheduled
-                 (if (equal field "scheduled") ""
-                   (grove-document--planning-field
-                    params :grove-scheduled
-                    (plist-get grove-document--planning :scheduled))))
-      (plist-put grove-document--planning :deadline
-                 (if (equal field "deadline") ""
-                   (grove-document--planning-field
-                    params :grove-deadline
-                    (plist-get grove-document--planning :deadline))))
-      (jetpacs-app-defer-refresh params)
-      'accepted))))
+      (pcase-let ((`(,scheduled . ,deadline)
+                   (grove-document--planning-merge-captured params)))
+        (setq grove-document--planning
+              (plist-put grove-document--planning :scheduled
+                         (if (member field '("scheduled" "both"))
+                             "" scheduled)))
+        (setq grove-document--planning
+              (plist-put grove-document--planning :deadline
+                         (if (member field '("deadline" "both"))
+                             "" deadline)))
+        (when (member field grove-document--planning-focuses)
+          (setq grove-document--planning
+                (plist-put grove-document--planning :focus field)))
+        (jetpacs-app-defer-refresh params)
+        'accepted)))))
 
 (defun grove-document--on-planning-save (args params)
   "Atomically commit ARGS' planning fields captured in PARAMS."
@@ -638,9 +775,10 @@ without duplicating its Org resolution or screen state."
 
 (defun grove-document--planning-editor (field label value)
   "Return planning editor FIELD with LABEL and current VALUE."
-  (let ((date (ebp-org-ts-date value))
-        (time (ebp-org-ts-time value))
-        (capture '("grove-scheduled" "grove-deadline")))
+  (let* ((date (grove-document--planning-date value))
+         (raw-time (ebp-org-ts-time value))
+         (time (and (grove-document--planning-time-valid-p raw-time)
+                    raw-time)))
     (jetpacs-card
      (jetpacs-column
       (jetpacs-text label :style "title")
@@ -653,21 +791,211 @@ without duplicating its Org resolution or screen state."
         (or date "Choose date")
         (jetpacs-action "grove.planning.pick"
                         :args (list :field field :kind "date")
-                        :capture-fields capture)
+                        :capture-fields grove-document--planning-fields)
         :value date)
        (jetpacs-time-button
         (or time "Add time")
         (jetpacs-action "grove.planning.pick"
                         :args (list :field field :kind "time")
-                        :capture-fields capture)
+                        :capture-fields grove-document--planning-fields)
         :value time :display-mode "switchable")
        (jetpacs-button
         "Clear"
         (jetpacs-action "grove.planning.clear"
                         :args (list :field field)
-                        :capture-fields capture)
+                        :capture-fields grove-document--planning-fields)
         :variant "text"))
       :spacing 8)
+     :variant "outlined")))
+
+(defun grove-document--planning-target-button (field label value focus)
+  "Build a planning target button for FIELD, LABEL, VALUE, and FOCUS."
+  (let ((date (grove-document--planning-date value)))
+    (jetpacs-button
+     (concat label (if date (concat " · " date) ""))
+     (jetpacs-action
+      "grove.planning.focus" :args (list :field field)
+      :capture-fields grove-document--planning-fields)
+     :icon (if (equal field "deadline") "event_busy" "schedule")
+     :variant (if (equal field focus) "filled" "outlined"))))
+
+(defun grove-document--planning-preset-dates (today)
+  "Return Grove quick-pick label/date pairs relative to ISO TODAY."
+  (when (grove-org-date-valid-p today)
+    (let* ((parts (grove-org--date-parts today))
+           (weekday (calendar-day-of-week parts))
+           (weekend-delta (mod (- 6 weekday) 7))
+           (monday-delta (mod (- 1 weekday) 7)))
+      (when (= monday-delta 0) (setq monday-delta 7))
+      (list (cons "Today" today)
+            (cons "Tomorrow" (grove-org-date-shift today 1))
+            (cons "This weekend"
+                  (grove-org-date-shift today weekend-delta))
+            (cons "Next week"
+                  (grove-org-date-shift today monday-delta))))))
+
+(defun grove-document--planning-preset-row (focus today)
+  "Build quick date picks for FOCUS relative to TODAY."
+  (apply
+   #'jetpacs-flow-row
+   (append
+    (mapcar
+     (lambda (preset)
+       (jetpacs-button
+        (car preset)
+        (jetpacs-action
+         "grove.planning.pick"
+         :args (list :field focus :kind "date" :value (cdr preset))
+         :capture-fields grove-document--planning-fields)
+        :variant "tonal" :size "small"))
+     (grove-document--planning-preset-dates today))
+    '(:spacing 6 :run-spacing 6))))
+
+(defun grove-document--planning-day-styles (scheduled deadline)
+  "Return unique day styles for ISO SCHEDULED and DEADLINE dates."
+  (let (styles)
+    (when scheduled
+      (push (cons scheduled
+                  (jetpacs-month-day-style "primary" "on_primary"))
+            styles))
+    (when deadline
+      (setq styles (cl-remove deadline styles :key #'car :test #'equal))
+      (push (cons deadline
+                  (jetpacs-month-day-style "error" "on_error"))
+            styles))
+    (sort styles (lambda (left right) (string< (car left) (car right))))))
+
+(defun grove-document--planning-calendar-marks
+    (counts scheduled deadline styled)
+  "Build month marks from COUNTS and planning endpoints.
+When STYLED is nil, SCHEDULED and DEADLINE colors are folded into the mark
+fallback so an older member profile still distinguishes the two targets."
+  (let ((dots (make-hash-table :test #'equal))
+        (colors (make-hash-table :test #'equal)))
+    (dolist (mark counts)
+      (when (and (grove-org-date-valid-p (car mark))
+                 (integerp (cdr mark)))
+        (puthash (car mark) (max 0 (min 3 (cdr mark))) dots)))
+    (unless styled
+      (when scheduled
+        (puthash scheduled (max 1 (gethash scheduled dots 0)) dots)
+        (puthash scheduled "primary" colors))
+      (when deadline
+        (puthash deadline (max 1 (gethash deadline dots 0)) dots)
+        (puthash deadline "error" colors)))
+    (let (marks)
+      (maphash
+       (lambda (date count)
+         (when (> count 0)
+           (push (cons date
+                       (jetpacs-month-mark count
+                                           :color (gethash date colors)))
+                 marks)))
+       dots)
+      (sort marks (lambda (left right) (string< (car left) (car right)))))))
+
+(defun grove-document--planning-feedback (scheduled deadline focus)
+  "Build feedback for SCHEDULED and DEADLINE while editing FOCUS."
+  (let ((scheduled-date (grove-document--planning-date scheduled))
+        (deadline-date (grove-document--planning-date deadline)))
+    (cond
+     ((and scheduled-date deadline-date)
+      (let ((days (grove-org--date-delta deadline-date scheduled-date)))
+        (jetpacs-card
+         (jetpacs-row
+          (jetpacs-icon (if (< days 0) "warning" "date_range")
+                        :color (if (< days 0) "error" "primary"))
+          (jetpacs-with-attrs
+           (jetpacs-text
+            (cond
+             ((< days 0)
+              (format "Deadline is %d day%s before the scheduled date."
+                      (- days) (if (= days -1) "" "s")))
+             ((= days 0) "Scheduled and due on the same day.")
+             (t (format "%d day%s between scheduled and deadline."
+                        days (if (= days 1) "" "s"))))
+            :style "caption" :color (and (< days 0) "error"))
+           :weight 1)
+          :spacing 8 :align "center")
+         :variant "outlined")))
+     ((and deadline-date (null scheduled-date))
+      (let ((suggestion (grove-org-date-shift deadline-date -3)))
+        (jetpacs-card
+         (jetpacs-column
+          (jetpacs-text "Give yourself a runway" :style "label")
+          (jetpacs-text
+           (format "Schedule this for %s, three days before the deadline."
+                   suggestion)
+           :style "caption")
+          (jetpacs-button
+           "Use suggested date"
+           (jetpacs-action
+            "grove.planning.pick"
+            :args (list :field "scheduled" :kind "date"
+                        :value suggestion)
+            :capture-fields grove-document--planning-fields)
+           :icon "schedule" :variant "tonal" :size "small")
+          :spacing 6)
+         :variant "outlined")))
+     ((and (equal focus "deadline") scheduled-date)
+      (jetpacs-text "Choose a deadline to see the available lead time."
+                    :style "caption")))))
+
+(defun grove-document--planning-calendar
+    (scheduled deadline focus month today marks)
+  "Build Grove's calendar from SCHEDULED, DEADLINE, FOCUS, MONTH, TODAY, and MARKS."
+  (let* ((scheduled-date (grove-document--planning-date scheduled))
+         (deadline-date (grove-document--planning-date deadline))
+         (styled
+          (jetpacs-node-member-advertised-p
+           "month_grid" "day_styles" :app))
+         (chronological
+          (and scheduled-date deadline-date
+               (not (string> scheduled-date deadline-date))))
+         (selected
+          (unless chronological
+            (if (equal focus "deadline")
+                (or deadline-date scheduled-date)
+              (or scheduled-date deadline-date)))))
+    (jetpacs-card
+     (jetpacs-column
+      (jetpacs-flow-row
+       (grove-document--planning-target-button
+        "scheduled" "Scheduled" scheduled focus)
+       (grove-document--planning-target-button
+        "deadline" "Deadline" deadline focus)
+       (jetpacs-button
+        "Clear both"
+        (jetpacs-action
+         "grove.planning.clear" :args '(:field "both")
+         :capture-fields grove-document--planning-fields)
+        :variant "text" :size "small")
+       :spacing 6 :run-spacing 6)
+      (jetpacs-month-grid
+       month
+       :marks (grove-document--planning-calendar-marks
+               marks scheduled-date deadline-date styled)
+       :day-styles (and styled
+                        (grove-document--planning-day-styles
+                         scheduled-date deadline-date))
+       :selected selected
+       :range-start (and chronological scheduled-date)
+       :range-end (and chronological deadline-date)
+       :on-day-tap
+       (jetpacs-action
+        "grove.planning.pick" :args (list :field focus :kind "date")
+        :capture-fields grove-document--planning-fields)
+       :on-month-change
+       (jetpacs-action
+        "grove.planning.month"
+        :capture-fields grove-document--planning-fields)
+       :children
+       (list (jetpacs-text
+              "Use the date controls below if this renderer has no calendar."
+              :style "caption")))
+      (grove-document--planning-preset-row focus today)
+      (grove-document--planning-feedback scheduled deadline focus)
+      :spacing 10)
      :variant "outlined")))
 
 (defun grove-document-planning-screen (back)
@@ -678,14 +1006,24 @@ without duplicating its Org resolution or screen state."
        (jetpacs-empty-state :icon "event_busy" :title "Planning expired"
                             :caption "Reopen it from the document.")
        :back back)
-    (let ((scheduled (plist-get grove-document--planning :scheduled))
-          (deadline (plist-get grove-document--planning :deadline)))
+    (let* ((scheduled (plist-get grove-document--planning :scheduled))
+           (deadline (plist-get grove-document--planning :deadline))
+           (focus (or (plist-get grove-document--planning :focus)
+                      "scheduled"))
+           (today (plist-get grove-document--planning :today))
+           (month
+            (or (plist-get grove-document--planning :month)
+                (grove-document--planning-month-for
+                 scheduled deadline focus today))))
       (jetpacs-chrome-screen
        "Planning"
        (jetpacs-lazy-column
         (jetpacs-text
-         "Schedule and deadline are committed together. Emacs accepts its normal Org date shorthand and repeater syntax."
+         "Pick both dates on one calendar, then refine either timestamp. Emacs still accepts normal Org shorthand and repeaters."
          :style "caption")
+        (grove-document--planning-calendar
+         scheduled deadline focus month today
+         (plist-get grove-document--planning :marks))
         (grove-document--planning-editor
          "scheduled" "Scheduled" scheduled)
         (grove-document--planning-editor
@@ -700,7 +1038,7 @@ without duplicating its Org resolution or screen state."
                       (plist-get grove-document--planning :heading-id)
                       :revision
                       (plist-get grove-document--planning :revision))
-          :capture-fields '("grove-scheduled" "grove-deadline")
+          :capture-fields grove-document--planning-fields
           :when-offline 'queue :ttl-s 86400
           :dedupe (jetpacs-wire-id
                    "grove-planning"
@@ -712,7 +1050,8 @@ without duplicating its Org resolution or screen state."
 (defconst grove-document--verbs
   '("grove.document.open" "grove.document.mode" "grove.document.save"
     "grove.document.todo" "grove.document.planning"
-    "grove.planning.pick" "grove.planning.clear" "grove.planning.save")
+    "grove.planning.pick" "grove.planning.focus" "grove.planning.month"
+    "grove.planning.clear" "grove.planning.save")
   "Action names owned by Grove's document module.")
 
 (defun grove-document-register ()
@@ -723,13 +1062,35 @@ without duplicating its Org resolution or screen state."
                       (jetpacs-defaction "grove.document.save" #'grove-document--on-save)
                       (jetpacs-defaction "grove.document.todo" #'grove-document--on-todo)
                       (jetpacs-defaction "grove.document.planning"
-                                         #'grove-document--open-planning)
+                                         #'grove-document--open-planning
+                                         :args '((:name notebook-id :type "ref" :required t)
+                                                 (:name heading-id :type "ref" :required t)
+                                                 (:name focus :type "enum"))
+                                         :doc "Open Grove's paired Org planning calendar")
                       (jetpacs-defaction "grove.planning.pick"
-                                         #'grove-document--on-planning-pick)
+                                         #'grove-document--on-planning-pick
+                                         :args '((:name field :type "enum" :required t)
+                                                 (:name kind :type "enum" :required t)
+                                                 (:name value :type "text" :required t))
+                                         :doc "Apply a validated date or time to one planning target")
+                      (jetpacs-defaction "grove.planning.focus"
+                                         #'grove-document--on-planning-focus
+                                         :args '((:name field :type "enum" :required t))
+                                         :doc "Choose which planning target receives calendar taps")
+                      (jetpacs-defaction "grove.planning.month"
+                                         #'grove-document--on-planning-month
+                                         :args '((:name value :type "month" :required t))
+                                         :doc "Browse Grove's planning calendar to a month")
                       (jetpacs-defaction "grove.planning.clear"
-                                         #'grove-document--on-planning-clear)
+                                         #'grove-document--on-planning-clear
+                                         :args '((:name field :type "enum" :required t))
+                                         :doc "Clear one or both captured planning values")
                       (jetpacs-defaction "grove.planning.save"
-                                         #'grove-document--on-planning-save))
+                                         #'grove-document--on-planning-save
+                                         :args '((:name notebook-id :type "ref" :required t)
+                                                 (:name heading-id :type "ref" :required t)
+                                                 (:name revision :type "text" :required t))
+                                         :doc "Atomically commit both Org planning values"))
   t)
 
 (defun grove-document-unregister ()

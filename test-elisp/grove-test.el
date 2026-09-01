@@ -74,6 +74,28 @@
           "/tmp/private-vault"
           (jetpacs-node->canonical-json (grove-ui-screen nil))))))))
 
+(ert-deftest grove-org-planning-marks-are-bounded-date-only-counts ()
+  "Planning scans one month but retains no Org identity or headline text."
+  (let* ((private "/tmp/private-vault/secret.org")
+         (first (grove-test--agenda-item
+                 private 1 "Private A" "2026-09-03"))
+         (second (grove-test--agenda-item
+                  private 2 "Private B" "2026-09-08"))
+         (outside (grove-test--agenda-item
+                   private 3 "Outside" "2026-10-01"))
+         called)
+    (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-items)
+               (lambda (span start)
+                 (setq called (list span start))
+                 (list first (copy-tree first) (copy-tree first)
+                       (copy-tree first) second outside))))
+      (let ((marks (grove-org-planning-marks "2026-09")))
+        (should (equal called '(month "2026-09-01")))
+        (should (equal marks '(("2026-09-03" . 3)
+                               ("2026-09-08" . 1))))
+        (should-not (string-search private (format "%S" marks)))
+        (should-not (string-search "Private" (format "%S" marks)))))))
+
 (ert-deftest grove-agenda-builder-is-repeatable-over-explicit-state ()
   "The same snapshot and range produce byte-identical canonical screens."
   (let ((grove-org--snapshot (grove-test--snapshot))
@@ -221,6 +243,10 @@
         (should (equal
                  (plist-get (plist-get reschedule :on_tap) :open_surface)
                  grove-app-surface))
+        (should (equal
+                 (plist-get (plist-get (plist-get reschedule :on_tap) :args)
+                            :focus)
+                 "scheduled"))
         (should (equal (plist-get (plist-get complete :on_tap) :action)
                        "grove.reminder.complete"))
         (should-not (plist-get complete :dismiss))
@@ -266,13 +292,15 @@
       (let ((args '(:owner "grove"
                     :reminder_id "grove-reminder-1234"
                     :notebook-id "grove-notebook-a"
-                    :heading-id "grove-heading-a")))
+                    :heading-id "grove-heading-a"
+                    :focus "deadline")))
         (should (eq (grove-reminders--on-complete args nil) 'accepted))
         (should (equal toggled (list ref 'grove 'done)))
         (should refreshed)
         (should (eq (grove-reminders--on-reschedule args nil) 'accepted))
         (should (equal planned
-                       '("grove-notebook-a" "grove-heading-a" nil)))
+                       '("grove-notebook-a" "grove-heading-a" nil
+                         "deadline")))
         (should (eq
                  (grove-reminders--on-complete
                   (plist-put (copy-sequence args) :owner "other") nil)
@@ -693,6 +721,112 @@
               nil)
              'stale))
         (should-not called)))))
+
+(ert-deftest grove-planning-calendar-is-pure-styled-and-profile-valid ()
+  "The combined calendar is a pure projection with a styled planning range."
+  (let ((grove-document--planning
+         '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
+           :scheduled "<2026-09-04 Fri 09:00 +1w>"
+           :deadline "<2026-09-08 Tue>" :focus "scheduled"
+           :today "2026-09-01" :month "2026-09"
+           :marks (("2026-09-04" . 2) ("2026-09-06" . 1)))))
+    (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-items)
+               (lambda (&rest _) (error "builder performed Org I/O")))
+              ((symbol-function 'jetpacs-node-member-advertised-p)
+               (lambda (type member &optional _target)
+                 (and (equal type "month_grid")
+                      (equal member "day_styles")))))
+      (let* ((screen (grove-document-planning-screen nil))
+             (json (jetpacs-node->canonical-json screen)))
+        (should (jetpacs-check-profile screen 'app))
+        (should (string-search "\"range_start\":\"2026-09-04\"" json))
+        (should (string-search "\"range_end\":\"2026-09-08\"" json))
+        (should (string-search "\"day_styles\"" json))
+        (should (string-search "\"background\":\"primary\"" json))
+        (should (string-search "\"background\":\"error\"" json))
+        (should (string-search "grove.planning.focus" json))
+        (should (string-search "grove.planning.month" json))
+        (should (string-search "Clear both" json))
+        (should (string-search "4 days between scheduled and deadline" json))))))
+
+(ert-deftest grove-planning-calendar-degrades-day-styles-to-colored-marks ()
+  "A constrained member profile gets marks instead of day_styles."
+  (let ((grove-document--planning
+         '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
+           :scheduled "2026-09-04" :deadline "2026-09-08"
+           :focus "deadline" :today "2026-09-01" :month "2026-09"
+           :marks nil)))
+    (cl-letf (((symbol-function 'jetpacs-node-member-advertised-p)
+               (lambda (&rest _) nil)))
+      (let ((json (jetpacs-node->canonical-json
+                   (grove-document-planning-screen nil))))
+        (should-not (string-search "\"day_styles\"" json))
+        (should (string-search "\"color\":\"primary\"" json))
+        (should (string-search "\"color\":\"error\"" json))))))
+
+(ert-deftest grove-planning-actions-preserve-captured-pair-and-validate-dates ()
+  "Calendar transitions preserve local edits and reject malformed injection."
+  (let ((grove-document--planning
+         '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
+           :scheduled "<2026-09-04 Fri 09:00 +1w>"
+           :deadline "" :focus "scheduled" :today "2026-09-01"
+           :month "2026-09" :marks nil))
+        mark-months refreshed)
+    (cl-letf (((symbol-function 'grove-org-planning-marks)
+               (lambda (month)
+                 (push month mark-months)
+                 (list (cons (concat month "-02") 1))))
+              ((symbol-function 'jetpacs-app-defer-refresh)
+               (lambda (&rest _) (setq refreshed t))))
+      (should
+       (eq (grove-document--on-planning-pick
+            '(:field "scheduled" :kind "date" :value "2026-10-07")
+            '(:fields (:grove-scheduled "<2026-09-04 Fri 09:00 +1w>"
+                       :grove-deadline "<2026-10-11 Sun>")))
+           'accepted))
+      (should (equal (plist-get grove-document--planning :scheduled)
+                     "<2026-10-07 09:00 +1w>"))
+      (should (equal (plist-get grove-document--planning :deadline)
+                     "<2026-10-11 Sun>"))
+      (should (equal (plist-get grove-document--planning :month) "2026-10"))
+      (should (equal mark-months '("2026-10")))
+      (should refreshed)
+      (setq refreshed nil)
+      (should
+       (eq (grove-document--on-planning-month
+            '(:value "2026-11")
+            '(:fields (:grove-scheduled "nov 2 09:00"
+                       :grove-deadline "nov 9")))
+           'accepted))
+      (should (equal (plist-get grove-document--planning :scheduled)
+                     "nov 2 09:00"))
+      (should (equal (plist-get grove-document--planning :deadline) "nov 9"))
+      (should (equal mark-months '("2026-11" "2026-10")))
+      (let ((before (copy-tree grove-document--planning)))
+        (should
+         (eq (grove-document--on-planning-pick
+              '(:field "deadline" :kind "date" :value "2026-02-30") nil)
+             'rejected))
+        (should (equal grove-document--planning before)))
+      (should
+       (eq (grove-document--on-planning-clear
+            '(:field "both")
+            '(:fields (:grove-scheduled "keep?" :grove-deadline "keep?")))
+           'accepted))
+      (should (equal (plist-get grove-document--planning :scheduled) ""))
+      (should (equal (plist-get grove-document--planning :deadline) "")))))
+
+(ert-deftest grove-planning-presets-and-colliding-styles-are-deterministic ()
+  "Quick dates use calendar arithmetic and a same-day deadline wins color."
+  (should (equal (grove-document--planning-preset-dates "2026-09-01")
+                 '(("Today" . "2026-09-01")
+                   ("Tomorrow" . "2026-09-02")
+                   ("This weekend" . "2026-09-05")
+                   ("Next week" . "2026-09-07"))))
+  (let ((styles (grove-document--planning-day-styles
+                 "2026-09-04" "2026-09-04")))
+    (should (= (length styles) 1))
+    (should (equal (plist-get (cdar styles) :background) "error"))))
 
 (ert-deftest grove-notebooks-use-reveal-only-swipe-and-folder-local-builders ()
   "Notebook swipes never commit and each stacked folder keeps its own model."
