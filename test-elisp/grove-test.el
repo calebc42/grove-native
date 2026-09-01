@@ -171,6 +171,7 @@
         (dolist (name (append '("grove.agenda.refresh" "grove.agenda.select"
                                 "grove.agenda.item.open" "grove.agenda.done")
                               grove-navigation--verbs
+                              grove-structure--verbs
                               grove-document--verbs))
           (should (gethash name jetpacs-action-handlers)))
         (should (assoc grove-capture-widget-surface jetpacs-shell--roots))
@@ -182,6 +183,7 @@
         (dolist (name (append '("grove.agenda.refresh" "grove.agenda.select"
                                 "grove.agenda.item.open" "grove.agenda.done")
                               grove-navigation--verbs
+                              grove-structure--verbs
                               grove-document--verbs))
           (should-not (gethash name jetpacs-action-handlers))))
     (grove-register)))
@@ -516,6 +518,131 @@
         (should (string-search "Client" child-json))
         (should-not (string-search "Inbox" child-json))
         (should (equal root-json root-again))))))
+
+(ert-deftest grove-outline-rows-expose-safe-rich-structure-controls ()
+  "Leading swipes reveal four actions without commit; only Done deep-commits."
+  (let* ((grove-navigation--notebook-id "grove-notebook-test")
+         (record '(:id "grove-heading-test" :parent-id nil :level 1
+                       :title "Plan project" :todo "TODO" :done nil
+                       :revision
+                       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+         (row (car (grove-navigation--outline-children (list record) nil)))
+         (start (plist-get row :swipe_start))
+         (end (plist-get row :swipe_end))
+         (json (jetpacs-node->canonical-json row)))
+    (should (= 4 (length (plist-get start :actions))))
+    (should-not (plist-get start :commit))
+    (should (equal (mapcar (lambda (action) (plist-get action :label))
+                           (append (plist-get start :actions) nil))
+                   '("Above" "Below" "Child" "Refile")))
+    (should (eq (plist-get end :commit) t))
+    (should (equal (mapcar (lambda (action) (plist-get action :label))
+                           (append (plist-get end :actions) nil))
+                   '("Done" "Plan")))
+    (should (string-search "Insert above" json))
+    (should (string-search "Paste under" json))
+    (should (string-search "Narrow to subtree" json))
+    (should (string-search "Archive this heading" json))
+    (should-not (string-search ":file" json))
+    (should-not (string-search "/home/" json))))
+
+(ert-deftest grove-outline-mutation-is-revision-bound-and-undoable ()
+  "A live opaque row can move and undo; a later local edit makes it stale."
+  (let* ((root (make-temp-file "grove-structure" t))
+         (file (expand-file-name "notes.org" root))
+         (org-directory root)
+         (org-agenda-files (list file))
+         (ebp-org-roots (list root))
+         (grove-library--snapshot
+          '(:notebooks nil :folders nil :total-count 0 :truncated nil
+                       :error nil))
+         (grove-library--notebook-paths (make-hash-table :test #'equal))
+         (grove-library--folder-paths (make-hash-table :test #'equal))
+         (grove-library--heading-refs (make-hash-table :test #'equal))
+         (grove-library--outlines (make-hash-table :test #'equal))
+         (grove-library--documents (make-hash-table :test #'equal))
+         (grove-structure--expanded (make-hash-table :test #'equal))
+         (grove-structure--undo-notebooks nil)
+         (ebp-org-file-save-function
+          (lambda (buffer)
+            (with-current-buffer buffer (save-buffer))
+            t)))
+    (unwind-protect
+        (progn
+          (write-region
+           "* Alpha\n:PROPERTIES:\n:ID: alpha-id\n:END:\n** Child\n* Beta\n:PROPERTIES:\n:ID: beta-id\n:END:\n"
+           nil file nil 'silent)
+          (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-scope)
+                     (lambda () (list file)))
+                    ((symbol-function 'jetpacs-event-stale-p)
+                     (lambda (_params) nil))
+                    ((symbol-function 'jetpacs-app-defer-refresh)
+                     (lambda (&rest _) t))
+                    ((symbol-function 'jetpacs-shell-notify)
+                     (lambda (&rest _) t))
+                    ((symbol-function 'jetpacs-shell-push)
+                     (lambda (&rest _) t)))
+            (grove-library-refresh)
+            (let* ((notebook-id
+                    (plist-get
+                     (car (plist-get (grove-library-snapshot) :notebooks))
+                     :id))
+                   (records
+                    (plist-get (grove-library-outline-refresh notebook-id)
+                               :records))
+                   (alpha (cl-find "Alpha" records
+                                   :key (lambda (record)
+                                          (plist-get record :title))
+                                   :test #'equal))
+                   (args (grove-structure--identity-args
+                          notebook-id alpha "move-down"))
+                   (params '(:surface "app:grove")))
+              (should (eq (grove-structure--on-mutate args params)
+                          'accepted))
+              (with-current-buffer (find-file-noselect file t)
+                (org-with-wide-buffer
+                 (goto-char (point-min))
+                 (should (looking-at-p "\\* Beta"))))
+              (should (jetpacs-org-structure-undo-summary grove-owner))
+              (should (eq (grove-structure--on-undo nil params) 'accepted))
+              (with-current-buffer (find-file-noselect file t)
+                (org-with-wide-buffer
+                 (goto-char (point-min))
+                 (should (looking-at-p "\\* Alpha"))
+                 (search-forward ":END:\n")
+                 (insert "Local drift\n")))
+              (should (eq (grove-structure--on-mutate args params) 'stale))
+              (let* ((fresh-records
+                      (plist-get
+                       (grove-library-outline-refresh notebook-id) :records))
+                     (fresh-alpha
+                      (cl-find "Alpha" fresh-records
+                               :key (lambda (record)
+                                      (plist-get record :title))
+                               :test #'equal))
+                     (narrow-args
+                      (grove-structure--identity-args
+                       notebook-id fresh-alpha "narrow")))
+                (should (eq (grove-structure--on-mutate
+                             narrow-args params)
+                            'accepted))
+                (let ((slice
+                       (grove-structure-outline-slice
+                        notebook-id fresh-records)))
+                  (should (plist-get slice :focused))
+                  (should (equal
+                           (mapcar (lambda (record)
+                                     (plist-get record :title))
+                                   (plist-get slice :records))
+                           '("Alpha" "Child"))))
+                (should (eq (grove-structure--on-widen
+                             (list :notebook-id notebook-id) params)
+                            'accepted))))))
+      (jetpacs-org-structure-reset grove-owner)
+      (when-let* ((buffer (find-buffer-visiting file)))
+        (with-current-buffer buffer (set-buffer-modified-p nil))
+        (kill-buffer buffer))
+      (delete-directory root t))))
 
 (ert-deftest grove-primary-shell-and-settings-are-valid-and-whitelisted ()
   "Grove exposes four primary destinations and only accepts safe settings."

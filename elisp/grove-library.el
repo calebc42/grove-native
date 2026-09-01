@@ -286,6 +286,21 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                 (equal (plist-get record :parent-id) folder-id))
               (plist-get grove-library--snapshot :folders)))
 
+(defun grove-library--forget-heading-state (notebook-id)
+  "Forget private heading and document state owned by NOTEBOOK-ID."
+  (let ((prefix (concat notebook-id "|"))
+        dead-refs dead-documents)
+    (maphash (lambda (key _value)
+               (when (string-prefix-p prefix key) (push key dead-refs)))
+             grove-library--heading-refs)
+    (maphash (lambda (key _value)
+               (when (string-prefix-p prefix key)
+                 (push key dead-documents)))
+             grove-library--documents)
+    (dolist (key dead-refs) (remhash key grove-library--heading-refs))
+    (dolist (key dead-documents) (remhash key grove-library--documents))
+    (remhash notebook-id grove-library--outlines)))
+
 (defun grove-library--scan-outline (notebook-id)
   "Scan NOTEBOOK-ID and return a safe nested-outline snapshot."
   (let ((file (or (grove-library-resolve-notebook notebook-id)
@@ -310,7 +325,11 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
            (goto-char (plist-get record :pos))
            (let* ((ref (ebp-org-ref-at-point))
                   (heading-id (grove-library--heading-id ref))
-                  (level (plist-get record :level)))
+                  (level (plist-get record :level))
+                  (revision
+                   (secure-hash
+                    'sha256 (current-buffer) (point)
+                    (save-excursion (org-end-of-subtree t t) (point)))))
              (while (and stack (>= (caar stack) level)) (pop stack))
              (let ((parent-id (cdar stack)))
                (puthash (grove-library--heading-key notebook-id heading-id)
@@ -322,6 +341,7 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                            :tags (copy-sequence (plist-get record :tags))
                            :deadline (plist-get record :deadline)
                            :done (plist-get record :done)
+                           :revision revision
                            :preview
                            (let ((body (string-trim
                                         (or (plist-get record :body) ""))))
@@ -339,6 +359,7 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
 
 (defun grove-library-outline-refresh (notebook-id)
   "Refresh and return NOTEBOOK-ID's safe outline snapshot."
+  (grove-library--forget-heading-state notebook-id)
   (let ((snapshot (grove-library--scan-outline notebook-id)))
     (puthash notebook-id snapshot grove-library--outlines)
     (run-hooks 'grove-library-after-refresh-hook)

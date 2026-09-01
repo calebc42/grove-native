@@ -25,6 +25,7 @@
 (require 'grove-document)
 (require 'grove-library)
 (require 'grove-org)
+(require 'grove-structure)
 (require 'grove-ui)
 
 (defconst grove-navigation-destinations
@@ -283,6 +284,30 @@
                                     :heading-id id :state "done")
                         :when-offline 'wake :ttl-s 86400
                         :dedupe (jetpacs-wire-id "grove-outline-done" id))))
+            (plan
+             (jetpacs-action
+              "grove.document.planning"
+              :args (list :notebook-id grove-navigation--notebook-id
+                          :heading-id id)))
+            (swipe-end
+             (if done
+                 (jetpacs-swipe
+                  (list
+                   (jetpacs-swipe-action
+                    "Done" :icon "done" :color "primary"
+                    :on-trigger done)
+                   (jetpacs-swipe-action
+                    "Plan" :icon "event" :color "secondary"
+                    :on-trigger plan))
+                  :commit t)
+               (jetpacs-swipe
+                (list
+                 (jetpacs-swipe-action
+                  "Plan" :icon "event" :color "secondary"
+                  :on-trigger plan)
+                 (jetpacs-swipe-action
+                  "Open" :icon "arrow_forward" :color "primary"
+                  :on-trigger open)))))
             (row
              (jetpacs-card
               (jetpacs-row
@@ -299,24 +324,20 @@
                 :weight 1)
                (when-let* ((todo (plist-get record :todo)))
                  (jetpacs-badge todo))
+               (grove-structure-menu grove-navigation--notebook-id record)
                :spacing 8 :align "center")
               :on-tap open
-              :swipe-end
-              (when done
-                (jetpacs-swipe
-                 (list
-                  (jetpacs-swipe-action
-                   "Done" :icon "done" :color "primary"
-                   :on-trigger done)
-                  (jetpacs-swipe-action
-                   "Open" :icon "arrow_forward" :color "secondary"
-                   :on-trigger open))
-                 :commit t))
+              :swipe-start
+              (grove-structure-swipe-start
+               grove-navigation--notebook-id record)
+              :swipe-end swipe-end
               :variant "outlined")))
        (if children
            (jetpacs-collapsible
             (jetpacs-wire-id "grove-outline" id) row children
-            :collapsed t)
+            :collapsed
+            (grove-structure-collapsed-value
+             grove-navigation--notebook-id))
          row)))
    (seq-filter (lambda (record)
                  (equal (plist-get record :parent-id) parent-id))
@@ -328,9 +349,18 @@
       (let* ((snapshot
               (grove-library-outline-snapshot
                grove-navigation--notebook-id))
-             (records (plist-get snapshot :records))
+             (slice
+              (grove-structure-outline-slice
+               grove-navigation--notebook-id
+               (plist-get snapshot :records)))
+             (records (plist-get slice :records))
+             (focused (plist-get slice :focused))
+             (expanded
+              (grove-structure-expanded-p
+               grove-navigation--notebook-id))
              (children nil))
-        (when-let* ((preface (plist-get snapshot :preface))
+        (when-let* (((not focused))
+                    (preface (plist-get snapshot :preface))
                     ((not (string-blank-p preface))))
           (push (jetpacs-card
                  (jetpacs-column
@@ -355,15 +385,34 @@
                                "Outline truncated at the configured safety limit."
                                :style "caption")))))
         (jetpacs-chrome-screen
-         (or (plist-get snapshot :label) "Outline")
+         (concat (or (plist-get snapshot :label) "Outline")
+                 (if focused " · Focus" ""))
          (apply #'jetpacs-lazy-column
                 (append children (list :spacing 8 :content-padding 12)))
          :back back
          :actions
-         (list
-          (jetpacs-icon-button
-           "refresh" (jetpacs-action "grove.outline.refresh")
-           :content-description "Refresh outline"))))
+         (delq
+          nil
+          (list
+           (when (jetpacs-org-structure-undo-summary grove-owner)
+             (jetpacs-icon-button
+              "undo" (grove-structure-undo-action)
+              :content-description "Undo last outline change"))
+           (when focused
+             (jetpacs-icon-button
+              "filter_center_focus"
+              (grove-structure-widen-action
+               grove-navigation--notebook-id)
+              :content-description "Widen outline"))
+           (jetpacs-icon-button
+            (if expanded "unfold_less" "unfold_more")
+            (grove-structure-expansion-action
+             grove-navigation--notebook-id (not expanded))
+            :content-description
+            (if expanded "Collapse all headings" "Expand all headings"))
+           (jetpacs-icon-button
+            "refresh" (jetpacs-action "grove.outline.refresh")
+            :content-description "Refresh outline")))))
     ((ebp-org-unresolved ebp-org-refused)
      (jetpacs-chrome-screen
       "Outline"

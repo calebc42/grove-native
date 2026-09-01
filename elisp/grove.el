@@ -30,6 +30,7 @@
 (require 'grove-org)
 (require 'grove-ui)
 (require 'grove-document)
+(require 'grove-structure)
 (require 'grove-navigation)
 (require 'grove-widgets)
 
@@ -139,6 +140,7 @@
      :args '((:name item-id :type "ref" :required t))
      :doc "Move the current Org heading to its configured done state"))
   (grove-navigation-register)
+  (grove-structure-register)
   (grove-document-register)
   (grove-widgets-register)
   (jetpacs-defapp "grove"
@@ -164,6 +166,7 @@
     (cancel-timer grove--push-timer))
   (setq grove--push-timer nil)
   (grove-navigation-unregister)
+  (grove-structure-unregister)
   (grove-document-unregister)
   (grove-org-unregister)
   (grove-library-reset)
