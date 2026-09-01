@@ -173,7 +173,8 @@
                               grove-navigation--verbs
                               grove-structure--verbs
                               grove-views--verbs
-                              grove-document--verbs))
+                              grove-document--verbs
+                              grove-reminders--verbs))
           (should (gethash name jetpacs-action-handlers)))
         (should (assoc grove-capture-widget-surface jetpacs-shell--roots))
         (should (assoc grove-agenda-widget-surface jetpacs-shell--roots))
@@ -186,9 +187,113 @@
                               grove-navigation--verbs
                               grove-structure--verbs
                               grove-views--verbs
-                              grove-document--verbs))
+                              grove-document--verbs
+                              grove-reminders--verbs))
           (should-not (gethash name jetpacs-action-handlers))))
     (grove-register)))
+
+(ert-deftest grove-reminders-project-opaque-ordered-elisp-actions ()
+  "Grove authors Complete then Reschedule without leaking an Org path."
+  (let* ((private "/tmp/private-vault/work plan.org")
+         (candidate
+          (list :ref (grove-test--ref private 42 "Ship it" "task-1")
+                :headline "Ship it" :type "scheduled" :time "14:30"
+                :event_at_ms 1788294600000 :at_ms 1788293700000
+                :identity (concat private "|task-1|2026-09-02T14:30")))
+         (grove-reminder-lead-minutes 15))
+    (cl-letf (((symbol-function 'jetpacs-granted-p)
+               (lambda (capability &optional _client)
+                 (member capability '("reminders.actions" "offline.wake"))))
+              ((symbol-function 'jetpacs-org-mode-reminder-candidates)
+               (lambda (&rest _) (list candidate)))
+              ((symbol-function 'grove-library-identify-heading)
+               (lambda (_ref)
+                 '(:notebook-id "grove-notebook-a"
+                   :heading-id "grove-heading-a"))))
+      (let* ((reminder (car (grove-reminders--projection)))
+             (actions (plist-get reminder :actions))
+             (complete (aref actions 0))
+             (reschedule (aref actions 1))
+             (json (jetpacs-node->canonical-json reminder)))
+        (should (= (length actions) 2))
+        (should (equal (plist-get complete :label) "Complete"))
+        (should (equal (plist-get reschedule :label) "Reschedule"))
+        (should (equal
+                 (plist-get (plist-get reschedule :on_tap) :open_surface)
+                 grove-app-surface))
+        (should (equal (plist-get (plist-get complete :on_tap) :action)
+                       "grove.reminder.complete"))
+        (should-not (plist-get complete :dismiss))
+        (should-not (string-search private json))
+        (should-not (string-search "work plan.org" json))))))
+
+(ert-deftest grove-reminders-degrade-without-interaction-capability ()
+  "An older peer receives the basic reminder schema and no app launch adjunct."
+  (let ((candidate
+         '(:ref (:file "/tmp/work.org" :pos 1 :headline "Task")
+           :headline "Task" :type "deadline" :time "10:00"
+           :event_at_ms 100000 :at_ms 100000 :identity "private")))
+    (cl-letf (((symbol-function 'jetpacs-granted-p)
+               (lambda (_capability &optional _client) nil))
+              ((symbol-function 'jetpacs-org-mode-reminder-candidates)
+               (lambda (&rest _) (list candidate)))
+              ((symbol-function 'grove-library-identify-heading)
+               (lambda (_ref)
+                 '(:notebook-id "grove-notebook-a"
+                   :heading-id "grove-heading-a"))))
+      (let* ((reminder (car (grove-reminders--projection)))
+             (tap (plist-get reminder :on_tap)))
+        (should-not (plist-member reminder :actions))
+        (should-not (plist-member tap :open_surface))
+        (should (equal (plist-get tap :when_offline) "queue"))))))
+
+(ert-deftest grove-reminder-handlers-own-org-semantics ()
+  "Complete mutates Org; Reschedule reuses Grove's normal planning canvas."
+  (let ((ref '(:file "/tmp/work.org" :pos 1 :headline "Task"))
+        toggled refreshed planned)
+    (cl-letf (((symbol-function 'grove-library-resolve-heading)
+               (lambda (notebook heading)
+                 (and (equal notebook "grove-notebook-a")
+                      (equal heading "grove-heading-a") ref)))
+              ((symbol-function 'ebp-org-toggle-todo)
+               (lambda (&rest args) (setq toggled args)))
+              ((symbol-function 'grove-library-reset-projections) #'ignore)
+              ((symbol-function 'grove-library-refresh) #'ignore)
+              ((symbol-function 'grove-org-refresh)
+               (lambda (&optional _now) (setq refreshed t)))
+              ((symbol-function 'grove-document-open-planning)
+               (lambda (&rest args) (setq planned args) 'accepted)))
+      (let ((args '(:owner "grove"
+                    :reminder_id "grove-reminder-1234"
+                    :notebook-id "grove-notebook-a"
+                    :heading-id "grove-heading-a")))
+        (should (eq (grove-reminders--on-complete args nil) 'accepted))
+        (should (equal toggled (list ref 'grove 'done)))
+        (should refreshed)
+        (should (eq (grove-reminders--on-reschedule args nil) 'accepted))
+        (should (equal planned
+                       '("grove-notebook-a" "grove-heading-a" nil)))
+        (should (eq
+                 (grove-reminders--on-complete
+                  (plist-put (copy-sequence args) :owner "other") nil)
+                 'stale))))))
+
+(ert-deftest grove-reminder-sync-preserves-confirmed-set-on-scan-failure ()
+  "A failed Org scan never becomes authority to clear Room's durable set."
+  (let ((grove-reminders-enabled t)
+        (grove-reminders--last-reminders '((:id "grove-reminder-old")))
+        (calls 0))
+    (cl-letf (((symbol-function 'jetpacs-connected-p) (lambda () t))
+              ((symbol-function 'jetpacs-granted-p) (lambda (&rest _) t))
+              ((symbol-function 'jetpacs-error-label) (lambda (_) "error"))
+              ((symbol-function 'grove-reminders--projection)
+               (lambda () (error "private path")))
+              ((symbol-function 'jetpacs-reminders-set)
+               (lambda (&rest _) (cl-incf calls))))
+      (grove-reminders--sync-now)
+      (should (zerop calls))
+      (should (equal grove-reminders--last-reminders
+                     '((:id "grove-reminder-old")))))))
 
 (ert-deftest grove-library-refresh-builds-a-private-nested-tree ()
   "Nested notebook paths become opaque, restart-rebuildable tree records."
@@ -763,11 +868,13 @@
   (should (jetpacs-check-profile
            (grove-navigation-settings-screen nil) 'app))
   (let ((grove-library-tree-view t)
-        saved deferred)
+        saved deferred reminder-sync)
     (cl-letf (((symbol-function 'grove-navigation--save-setting)
                (lambda (symbol value) (setq saved (list symbol value))))
               ((symbol-function 'jetpacs-app-defer-refresh)
-               (lambda (_params) (setq deferred t))))
+               (lambda (_params) (setq deferred t)))
+              ((symbol-function 'grove-reminders-schedule-sync)
+               (lambda (&rest _) (setq reminder-sync t))))
       (should (eq (grove-navigation--on-setting
                    '(:field "tree" :value :json-false) nil)
                   'accepted))
@@ -779,6 +886,17 @@
                   'rejected))
       (should-not saved)
       (should-not deferred)
+      (should (eq (grove-navigation--on-setting
+                   '(:field "reminder-lead" :value 60) nil)
+                  'accepted))
+      (should (equal saved '(grove-reminder-lead-minutes 60)))
+      (should reminder-sync)
+      (setq saved nil reminder-sync nil)
+      (should (eq (grove-navigation--on-setting
+                   '(:field "reminder-lead" :value 61) nil)
+                  'rejected))
+      (should-not saved)
+      (should-not reminder-sync)
       (should (eq (grove-navigation--on-setting
                    '(:field "unknown" :value t) nil)
                   'rejected)))))

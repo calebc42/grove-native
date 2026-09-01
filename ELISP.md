@@ -33,6 +33,13 @@ information architecture and visual workflows.
   settings, file names, and functions are never sent to Android.
 - Grove presentation settings backed by Customize, plus persistent opaque
   notebook favorites.
+- Timed Org reminders projected through Jetpacs' pairing-scoped Room store.
+  Notification body taps open the opaque Grove document; ordered Complete and
+  Reschedule actions enter the same durable EBP outbox. Complete invokes
+  Emacs' configured done-state mutation, while Reschedule opens Grove's shared
+  SCHEDULED/DEADLINE planning canvas. Android owns no Grove verb or Org path.
+  The settings screen controls enablement and 0/15/60-minute or one-day lead
+  time, and older peers receive the basic action-free reminder shape.
 - The sectioned Agenda, Org capture FAB, richer multi-action swipe, and live
   `widget:grove.capture` / `widget:grove.agenda` surfaces from the first slice.
 
@@ -82,6 +89,9 @@ bounds. The full variables remain ordinary Customize options:
 - `grove-saved-view-limit`
 - `grove-org-agenda-days`
 - `grove-org-agenda-item-limit`
+- `grove-reminders-enabled`
+- `grove-reminder-horizon-hours`
+- `grove-reminder-lead-minutes`
 
 ## Packaging and verification
 
@@ -98,6 +108,6 @@ gates with:
 ```
 
 The original Kotlin app remains the visual and workflow acceptance reference.
-Useful future UI slices include reminder-resolution flows and the richer
-lead-time/month-calendar visualization. Their semantics should continue to
-come from Emacs or reusable Jetpacs platform seams.
+The next useful UI slice is the richer lead-time/month-calendar visualization;
+its date semantics should continue to come from Emacs or reusable Jetpacs
+platform seams.

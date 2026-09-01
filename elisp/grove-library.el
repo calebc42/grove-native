@@ -110,6 +110,22 @@
                (or (plist-get ref :pos) 0)
                (or (plist-get ref :headline) ""))))))
 
+(defun grove-library-identify-heading (ref)
+  "Retain private Org REF and return its opaque Grove coordinates.
+The return value is `(:notebook-id ID :heading-id ID)'.  REF and its path
+remain only in Grove's Emacs-side map; nil means the ref is outside the
+canonical notebook library or cannot currently be resolved."
+  (when-let* ((ref (and (listp ref) (copy-tree ref)))
+              (file (plist-get ref :file))
+              (canonical (ebp-org-file-allowed-p file)))
+    (plist-put ref :file canonical)
+    (let ((notebook-id (grove-library--notebook-id canonical))
+          (heading-id (grove-library--heading-id ref)))
+      (when (grove-library-resolve-notebook notebook-id)
+        (puthash (grove-library--heading-key notebook-id heading-id)
+                 ref grove-library--heading-refs)
+        (list :notebook-id notebook-id :heading-id heading-id)))))
+
 (defun grove-library--heading-key (notebook-id heading-id)
   "Return the private map key for NOTEBOOK-ID and HEADING-ID."
   (concat notebook-id "|" heading-id))

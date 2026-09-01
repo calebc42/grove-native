@@ -30,6 +30,7 @@
 (require 'grove-org)
 (require 'grove-ui)
 (require 'grove-document)
+(require 'grove-reminders)
 (require 'grove-structure)
 (require 'grove-views)
 (require 'grove-navigation)
@@ -144,6 +145,7 @@
   (grove-structure-register)
   (grove-views-register)
   (grove-document-register)
+  (grove-reminders-register)
   (grove-widgets-register)
   (jetpacs-defapp "grove"
                   :label grove-title
@@ -170,6 +172,7 @@
   (grove-navigation-unregister)
   (grove-structure-unregister)
   (grove-views-unregister)
+  (grove-reminders-unregister)
   (grove-document-unregister)
   (grove-org-unregister)
   (grove-library-reset)

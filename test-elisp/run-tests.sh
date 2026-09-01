@@ -39,10 +39,11 @@ emacs -Q --batch \
   "$grove_root/elisp/grove-org.el" \
   "$grove_root/elisp/grove-ui.el" \
   "$grove_root/elisp/grove-document.el" \
+  "$grove_root/elisp/grove-reminders.el" \
   "$grove_root/elisp/grove-structure.el" \
   "$grove_root/elisp/grove-views.el" \
   "$grove_root/elisp/grove-navigation.el" \
   "$grove_root/elisp/grove-widgets.el" \
   "$grove_root/elisp/grove.el"
 
-test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 10
+test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 11

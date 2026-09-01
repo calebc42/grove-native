@@ -25,6 +25,7 @@
 (require 'grove-document)
 (require 'grove-library)
 (require 'grove-org)
+(require 'grove-reminders)
 (require 'grove-structure)
 (require 'grove-ui)
 (require 'grove-views)
@@ -596,6 +597,35 @@
                                    :args (list :field "mode" :value "edit"))
       :variant (if (eq grove-reader-default-mode 'edit) "filled" "text"))
      :spacing 6)
+    (jetpacs-section-header "Reminders")
+    (jetpacs-switch
+     "grove-setting-reminders"
+     :checked (jetpacs-bool grove-reminders-enabled)
+     :label "Timed Org reminders"
+     :on-change (jetpacs-action "grove.settings.set"
+                                :args (list :field "reminders-enabled")))
+    (jetpacs-text
+     (if (zerop grove-reminder-lead-minutes)
+         "Alert at the scheduled time"
+       (format "Alert %d minutes early" grove-reminder-lead-minutes))
+     :style "caption")
+    (jetpacs-flow-row
+     (jetpacs-button
+      "At time" (jetpacs-action "grove.settings.set"
+                                 :args (list :field "reminder-lead" :value 0))
+      :variant (if (zerop grove-reminder-lead-minutes) "filled" "outlined"))
+     (jetpacs-button
+      "15 min" (jetpacs-action "grove.settings.set"
+                                :args (list :field "reminder-lead" :value 15))
+      :variant (if (= grove-reminder-lead-minutes 15) "filled" "outlined"))
+     (jetpacs-button
+      "1 hour" (jetpacs-action "grove.settings.set"
+                                :args (list :field "reminder-lead" :value 60))
+      :variant (if (= grove-reminder-lead-minutes 60) "filled" "outlined"))
+     (jetpacs-button
+      "1 day" (jetpacs-action "grove.settings.set"
+                               :args (list :field "reminder-lead" :value 1440))
+      :variant (if (= grove-reminder-lead-minutes 1440) "filled" "outlined")))
     (jetpacs-section-header "Bounds")
     (jetpacs-text
      (format "Agenda: %d days · Search: %d results · Library: %d notebooks"
@@ -850,6 +880,18 @@
            (when (and (integerp value) (<= 1 value 512))
              (grove-navigation--save-setting
               'grove-search-result-limit value)
+             t))
+          ("reminders-enabled"
+           (when (memq value '(t :json-false))
+             (grove-navigation--save-setting
+              'grove-reminders-enabled (eq value t))
+             (grove-reminders-schedule-sync)
+             t))
+          ("reminder-lead"
+           (when (memq value '(0 5 10 15 30 60 1440))
+             (grove-navigation--save-setting
+              'grove-reminder-lead-minutes value)
+             (grove-reminders-schedule-sync)
              t)))
         (progn
           (jetpacs-app-defer-refresh params)

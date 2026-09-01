@@ -526,6 +526,15 @@ entire buffer, point, restriction, and modified flag exactly."
          (message "grove: planning open failed (%s)" (car err))
          'rejected))))))
 
+(defun grove-document-open-planning (notebook-id heading-id &optional params)
+  "Open the planning canvas for opaque NOTEBOOK-ID and HEADING-ID.
+PARAMS is the originating action context when one exists.  This public seam
+lets context-less platform gestures reuse Grove's normal planning workflow
+without duplicating its Org resolution or screen state."
+  (grove-document--open-planning
+   (list :notebook-id notebook-id :heading-id heading-id)
+   params))
+
 (defun grove-document--stamp-replace-date (stamp date)
   "Return STAMP with its date replaced by DATE."
   (if (and (stringp stamp)
