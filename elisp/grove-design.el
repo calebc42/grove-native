@@ -321,6 +321,43 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
     ("grove.swipe-cell"
      . ,(jetpacs-design-style
          `(("background_color" . ,(grove-design--token "color.surface-raised")))))
+    ;; The app's own switch is a 40x23 pill: raised surface off, accent on,
+    ;; with an 18 dp surface thumb.  The sizes ride on the slot so the
+    ;; renderer's default metrics never have to know Grove's.
+    ("grove.switch-track"
+     . ,(jetpacs-design-style
+         `(("width" . ,(jetpacs-design-dimension 40))
+           ("height" . ,(jetpacs-design-dimension 23))
+           ("corner_radius" . ,(jetpacs-design-dimension 12))
+           ("background_color" . ,(grove-design--token "color.surface-raised"))
+           ("border_width" . ,(jetpacs-design-dimension 0)))
+         :rules
+         (list
+          (jetpacs-design-rule
+           "selected"
+           `(("background_color" . ,(grove-design--token "color.primary")))
+           :motion "selection")
+          (jetpacs-design-rule
+           "focused"
+           `(("border_color" . ,(grove-design--token "color.primary"))
+             ("border_width" . ,(jetpacs-design-dimension 2)))
+           :motion "hover-focus")
+          (jetpacs-design-rule
+           "disabled" `(("alpha" . ,(jetpacs-design-number 0.38)))
+           :motion "hover-focus"))))
+    ("grove.switch-thumb"
+     . ,(jetpacs-design-style
+         `(("width" . ,(jetpacs-design-dimension 18))
+           ("height" . ,(jetpacs-design-dimension 18))
+           ("corner_radius" . ,(jetpacs-design-dimension 9))
+           ("background_color" . ,(grove-design--token "color.surface"))
+           ("content_color" . ,(grove-design--token "color.primary")))
+         :rules
+         (list
+          (jetpacs-design-rule
+           "selected"
+           `(("background_color" . ,(grove-design--token "color.on-primary")))
+           :motion "selection"))))
     ("grove.accent"
      . ,(jetpacs-design-style
          `(("content_color" . ,(grove-design--token "color.primary")))))
@@ -369,6 +406,9 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
     ("menu.item-label" . ("typography.label-large"))
     ("menu.item-supporting" . ("typography.caption" "grove.muted"))
     ("menu.group-label" . ("typography.label" "grove.muted"))
+    ("switch.track" . ("grove.switch-track"))
+    ("switch.thumb" . ("grove.switch-thumb"))
+    ("switch.label" . ("typography.body"))
     ("badge.container" . ("grove.chip"))
     ("badge.label" . ("typography.metadata"))
     ("empty-state.container" . ("grove.screen"))
