@@ -44,9 +44,11 @@
   "Push Grove's app and widget roots after a snapshot change."
   (setq grove--push-timer nil)
   (when (jetpacs-connected-p)
-    (dolist (surface (list grove-app-surface
-                           grove-capture-widget-surface
-                           grove-agenda-widget-surface))
+    (dolist (surface
+             (append (list grove-app-surface)
+                     (when (jetpacs-granted-p "surfaces.widget")
+                       (list grove-capture-widget-surface
+                             grove-agenda-widget-surface))))
       (condition-case err
           (jetpacs-shell-push surface)
         (error
@@ -64,7 +66,7 @@
 
 (defun grove--on-select-range (args params)
   "Select ARGS' agenda range and defer PARAMS' presentation refresh."
-  (let ((range (plist-get args :range)))
+  (let ((range (or (plist-get args :range) (plist-get args :value))))
     (cond
      ((not (member range '("today" "upcoming"))) 'rejected)
      ((jetpacs-event-stale-p params) 'stale)
@@ -117,10 +119,13 @@
 
 (defun grove-register ()
   "Register Grove's app, actions, Org adapter, and widget roots idempotently."
+  (grove-design-register)
   (remove-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
   (add-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
   (remove-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
   (add-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
+  (remove-hook 'jetpacs-design-profile-changed-hook #'grove--schedule-pushes)
+  (add-hook 'jetpacs-design-profile-changed-hook #'grove--schedule-pushes)
   ;; Keep the literal owner visible to Jetpacs' static applet inventory; the
   ;; constant above remains the runtime identity used everywhere else.
   (with-jetpacs-owner "grove"
@@ -167,6 +172,7 @@
   "Remove every Grove registration, hook, timer, and private snapshot."
   (remove-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
   (remove-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
+  (remove-hook 'jetpacs-design-profile-changed-hook #'grove--schedule-pushes)
   (when (timerp grove--push-timer)
     (cancel-timer grove--push-timer))
   (setq grove--push-timer nil)
@@ -183,6 +189,7 @@
     (jetpacs-undefaction name))
   (jetpacs-apps-unregister grove-owner)
   (jetpacs-chrome-remove grove-owner)
+  (grove-design-unregister)
   t)
 
 (grove-register)

@@ -81,7 +81,8 @@ INTERACTIVE non-nil gives each row a durable open action."
                  :trailing
                  (jetpacs-badge (number-to-string (length (cdr group))))))
                (mapcar (lambda (item)
-                         (grove-ui-agenda-row item t interactive))
+                         ;; The widget target advertises no extension nodes.
+                         (grove-ui-agenda-row item t interactive nil :widget))
                        (cdr group))))))
     (apply #'jetpacs-lazy-column
            (append children (list :spacing 6 :content-padding 8)))))

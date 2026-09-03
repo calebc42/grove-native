@@ -98,6 +98,41 @@ bounds. The full variables remain ordinary Customize options:
 - `grove-reminder-horizon-hours`
 - `grove-reminder-lead-minutes`
 
+### Design profiles
+
+When the Companion setting **Experimental Elisp design runtime** is enabled,
+all seven Grove app screens use a Grove design preset. Grove registers three:
+
+- `grove.default` ("Grove") defines the IBM Plex type scale, spacing, shapes,
+  state motion, and every component binding, but no fixed palette. Its color
+  tokens resolve the active Jetpacs/EBP theme roles, including Modus and ef
+  light/dark changes, and Grove-only colors collapse onto the nearest role.
+- `grove.light` ("Grove Light") and `grove.dark` ("Grove Dark") carry the
+  Android app's palettes verbatim, including the translucent soft fills and
+  the eight Org syntax colors, as literal color tokens. Like the app, they do
+  not follow the system dark setting; the user picks one in Design Lab.
+  Both re-declare the 13 EBP theme roles through their own tokens, so the
+  Companion's chrome (scaffold, top bar, tabs, cards) takes the app's palette
+  while they are active; `grove.default` leaves chrome on the Emacs theme.
+
+All presets share one type scale taken from the app's effective sizes and
+bind the six canonical text slots, so every ordinary text node renders in
+Plex Sans, Serif, or Mono by its EBP style name with no per-node wrappers.
+The document screen nests a scope that rebinds only body text to the Serif
+reading face, matching read mode. Buttons, chips, dividers, and section
+headers stay ordinary canonical nodes; the receiver's design overrides render
+them through the preset's `button.*`, `chip.*`, `divider.line`, and
+`section-header.*` bindings. Widgets and notifications remain outside
+this experiment.
+
+Open **Jetpacs Design Lab** to inspect Grove, save a complete editable copy,
+and make that copy the device-wide active profile. The full snapshot is owned
+and persisted by Emacs Customize; Android stores only cached surface documents.
+Turning the runtime off restores Grove's pre-experiment Material builders
+without changing Grove data, actions, identities, or Room schema. Companion
+Settings and the setup/repair path remain receiver-owned and reachable while
+Emacs is disconnected.
+
 ## Packaging and verification
 
 Jetpacs stages the complete `require` closure from these sources into its

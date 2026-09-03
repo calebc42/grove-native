@@ -20,6 +20,7 @@
 (require 'jetpacs-dialog)
 (require 'jetpacs-settings)
 (require 'jetpacs-shell)
+(require 'jetpacs-components)
 (require 'jetpacs-widgets)
 (require 'grove-core)
 (require 'grove-design)
@@ -94,30 +95,32 @@
 (defun grove-navigation--notebook-menu (record)
   "Return safe management menu for notebook RECORD."
   (let ((id (plist-get record :id)))
-    (jetpacs-menu
-     (list
-      (jetpacs-menu-item
-       (if (plist-get record :favorite) "Unfavorite" "Favorite")
-       (jetpacs-action "grove.library.favorite"
-                       :args (list :notebook-id id))
-       :icon (if (plist-get record :favorite) "star" "star_outline"))
-      (jetpacs-menu-item
-       "Rename"
-       (jetpacs-action "grove.library.rename"
-                       :args (list :notebook-id id))
-       :icon "edit")
-      (jetpacs-menu-item
-       "Move"
-       (jetpacs-action "grove.library.move"
-                       :args (list :notebook-id id))
-       :icon "drive_file_move")
-      (jetpacs-menu-item
-       "Move to trash"
-       (jetpacs-action
-        "grove.library.trash" :args (list :notebook-id id)
-        :confirm "Move this notebook to the recoverable trash?")
-       :icon "delete"))
-     :icon "more_vert")))
+    (jetpacs-with-semantics
+     (jetpacs-menu
+      (list
+       (jetpacs-menu-item
+        (if (plist-get record :favorite) "Unfavorite" "Favorite")
+        (jetpacs-action "grove.library.favorite"
+                        :args (list :notebook-id id))
+        :icon (if (plist-get record :favorite) "star" "star_outline"))
+       (jetpacs-menu-item
+        "Rename"
+        (jetpacs-action "grove.library.rename"
+                        :args (list :notebook-id id))
+        :icon "edit")
+       (jetpacs-menu-item
+        "Move"
+        (jetpacs-action "grove.library.move"
+                        :args (list :notebook-id id))
+        :icon "drive_file_move")
+       (jetpacs-menu-item
+        "Move to trash"
+        (jetpacs-action
+         "grove.library.trash" :args (list :notebook-id id)
+         :confirm "Move this notebook to the recoverable trash?")
+        :icon "delete"))
+      :icon "more_vert")
+     :name "Notebook actions")))
 
 (defun grove-navigation-notebook-row (record)
   "Build one Grove notebook RECORD with reveal-first actions."
@@ -139,24 +142,20 @@
              :color "primary" :on-trigger favorite-action)
             (jetpacs-swipe-action
              "Rename" :icon "edit" :color "secondary"
-             :on-trigger rename-action)))))
-    (jetpacs-with-attrs
-     (jetpacs-card
-      (jetpacs-row
-       (jetpacs-icon (if favorite "star" "description")
-                     :color (if favorite "primary" nil)
-                     :content-description
-                     (if favorite "Favorite notebook" "Notebook"))
-       (jetpacs-with-attrs
-        (jetpacs-column
-         (jetpacs-text (plist-get record :label) :max-lines 2)
-         (jetpacs-text (plist-get record :folder-label)
-                       :style "caption" :max-lines 1)
-         :spacing 2)
-        :weight 1)
-       (grove-navigation--notebook-menu record)
-       :align "center" :spacing 10)
-      :on-tap open :swipe-end swipe :variant "outlined")
+             :on-trigger rename-action))))
+         (leading (jetpacs-icon (if favorite "star" "description")
+                                :color (if favorite "primary" nil)
+                                :content-description
+                                (if favorite "Favorite notebook" "Notebook")))
+         (trailing (grove-navigation--notebook-menu record)))
+    (jetpacs-components-list-item
+     (plist-get record :label)
+     :subtitle (plist-get record :folder-label)
+     :title-max-lines 2 :subtitle-max-lines 1
+     :leading leading
+     :trailing trailing
+     :on-tap open
+     :swipe-end swipe
      :key id)))
 
 (defun grove-navigation--folder-row (record)
@@ -275,10 +274,9 @@
 
 (defun grove-navigation--present-notebooks-screen-for-folder (folder-id back)
   "Build FOLDER-ID's profile-selected Notebooks screen with BACK."
-  (let ((screen (grove-navigation--notebooks-screen-for-folder folder-id back)))
-    (if (jetpacs-extension-advertised-p "jetpacs.design" :app)
-        (grove-design-present-screen screen 'notebooks)
-      screen)))
+  (grove-design-present-if-advertised
+   (grove-navigation--notebooks-screen-for-folder folder-id back)
+   'notebooks))
 
 (defun grove-navigation-presented-notebooks-screen (back)
   "Build the profile-selected root Notebooks screen with BACK."
@@ -324,30 +322,28 @@
                  (jetpacs-swipe-action
                   "Open" :icon "arrow_forward" :color "primary"
                   :on-trigger open)))))
+            (menu (grove-structure-menu grove-navigation--notebook-id record))
+            (todo (plist-get record :todo))
             (row
-             (jetpacs-card
-              (jetpacs-row
-               (jetpacs-icon
-                (if (plist-get record :done) "check_circle"
-                  (if children "account_tree" "chevron_right"))
-                :content-description "Org heading")
-               (jetpacs-with-attrs
-                (jetpacs-column
-                 (jetpacs-text (plist-get record :title) :max-lines 3)
-                 (when-let* ((preview (plist-get record :preview)))
-                   (jetpacs-text preview :style "caption" :max-lines 2))
-                 :spacing 2)
-                :weight 1)
-               (when-let* ((todo (plist-get record :todo)))
-                 (jetpacs-badge todo))
-               (grove-structure-menu grove-navigation--notebook-id record)
-               :spacing 8 :align "center")
+             (jetpacs-components-list-item
+              (plist-get record :title)
+              :subtitle (plist-get record :preview)
+              :title-max-lines 3 :subtitle-max-lines 2
+              :leading (jetpacs-icon
+                        (if (plist-get record :done) "check_circle"
+                          (if children "account_tree" "chevron_right"))
+                        :content-description "Org heading")
+              ;; One trailing node, as the member is typed: the state badge
+              ;; and the structure menu travel together in a row.
+              :trailing (if todo
+                            (jetpacs-row (jetpacs-badge todo) menu
+                                         :spacing 8 :align "center")
+                          menu)
               :on-tap open
               :swipe-start
               (grove-structure-swipe-start
                grove-navigation--notebook-id record)
-              :swipe-end swipe-end
-              :variant "outlined")))
+              :swipe-end swipe-end)))
        (if children
            (jetpacs-collapsible
             (jetpacs-wire-id "grove-outline" id) row children
@@ -443,6 +439,11 @@
                            :caption "Refresh the notebook and try again.")
       :back back))))
 
+(defun grove-navigation-presented-outline-screen (back)
+  "Build the profile-selected native outline screen with BACK."
+  (grove-design-present-if-advertised
+   (grove-navigation-outline-screen back) 'outline))
+
 (defun grove-ui-open-outline (notebook-id &optional params)
   "Open NOTEBOOK-ID's Grove outline on PARAMS' surface."
   (cond
@@ -458,7 +459,7 @@
            (lambda ()
              (jetpacs-chrome-push-screen
               (grove-navigation--surface params) "outline"
-              #'grove-navigation-outline-screen)))
+              #'grove-navigation-presented-outline-screen)))
           'accepted)
       (ebp-org-unresolved 'stale)
       (error
@@ -584,6 +585,11 @@
   "Build Grove's native search destination with BACK."
   (jetpacs-chrome-screen "Search" (grove-navigation--search-body) :back back))
 
+(defun grove-navigation-presented-search-screen (back)
+  "Build the profile-selected Search destination with BACK."
+  (grove-design-present-if-advertised
+   (grove-navigation-search-screen back) 'search))
+
 (defun grove-navigation-settings-screen (back)
   "Build Grove's app-specific settings destination with BACK."
   (jetpacs-chrome-screen
@@ -626,19 +632,19 @@
     (jetpacs-flow-row
      (jetpacs-button
       "At time" (jetpacs-action "grove.settings.set"
-                                 :args (list :field "reminder-lead" :value 0))
+                                :args (list :field "reminder-lead" :value 0))
       :variant (if (zerop grove-reminder-lead-minutes) "filled" "outlined"))
      (jetpacs-button
       "15 min" (jetpacs-action "grove.settings.set"
-                                :args (list :field "reminder-lead" :value 15))
+                               :args (list :field "reminder-lead" :value 15))
       :variant (if (= grove-reminder-lead-minutes 15) "filled" "outlined"))
      (jetpacs-button
       "1 hour" (jetpacs-action "grove.settings.set"
-                                :args (list :field "reminder-lead" :value 60))
+                               :args (list :field "reminder-lead" :value 60))
       :variant (if (= grove-reminder-lead-minutes 60) "filled" "outlined"))
      (jetpacs-button
       "1 day" (jetpacs-action "grove.settings.set"
-                               :args (list :field "reminder-lead" :value 1440))
+                              :args (list :field "reminder-lead" :value 1440))
       :variant (if (= grove-reminder-lead-minutes 1440) "filled" "outlined")))
     (jetpacs-section-header "Bounds")
     (jetpacs-text
@@ -669,6 +675,11 @@
      :style "caption")
     :spacing 10 :content-padding 12)
    :back back))
+
+(defun grove-navigation-presented-settings-screen (back)
+  "Build the profile-selected Settings destination with BACK."
+  (grove-design-present-if-advertised
+   (grove-navigation-settings-screen back) 'settings))
 
 (defun grove-navigation--on-library-refresh (_args params)
   "Refresh library and outline projections for event PARAMS."
@@ -940,12 +951,14 @@
                        "grove.search.open"
                        (lambda (_args params)
                          (grove-navigation-open-destination
-                          "search" "search" #'grove-navigation-search-screen params)))
+                          "search" "search"
+                          #'grove-navigation-presented-search-screen params)))
                       (jetpacs-defaction
                        "grove.settings.open"
                        (lambda (_args params)
                          (grove-navigation-open-destination
-                          "settings" "settings" #'grove-navigation-settings-screen params)))
+                          "settings" "settings"
+                          #'grove-navigation-presented-settings-screen params)))
                       (jetpacs-defaction "grove.library.refresh"
                                          #'grove-navigation--on-library-refresh)
                       (jetpacs-defaction "grove.library.folder.open"

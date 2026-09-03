@@ -81,81 +81,83 @@ CONFIRM, when non-nil, is the platform confirmation text."
   "Return NOTEBOOK-ID and RECORD's complete outline operation menu."
   (let ((paste-ready
          (and (jetpacs-org-structure-clipboard-summary grove-owner) t)))
-    (jetpacs-menu
-     nil :icon "more_vert"
-     :groups
-     (list
-      (jetpacs-menu-group
-       "Add"
-       (list
-        (jetpacs-menu-item
-         "Insert above"
-         (grove-structure-action notebook-id record "insert-before")
-         :icon "vertical_align_top")
-        (jetpacs-menu-item
-         "Insert below"
-         (grove-structure-action notebook-id record "insert-after")
-         :icon "vertical_align_bottom")
-        (jetpacs-menu-item
-         "Insert child"
-         (grove-structure-action notebook-id record "insert-child")
-         :icon "subdirectory_arrow_right")
-        (jetpacs-menu-item
-         "Refile…" (grove-structure-action notebook-id record "refile")
-         :icon "drive_file_move")))
-      (jetpacs-menu-group
-       "Arrange"
-       (list
-        (jetpacs-menu-item
-         "Move up" (grove-structure-action notebook-id record "move-up")
-         :icon "arrow_upward")
-        (jetpacs-menu-item
-         "Move down" (grove-structure-action notebook-id record "move-down")
-         :icon "arrow_downward")
-        (jetpacs-menu-item
-         "Promote" (grove-structure-action notebook-id record "promote")
-         :icon "keyboard_double_arrow_left")
-        (jetpacs-menu-item
-         "Demote" (grove-structure-action notebook-id record "demote")
-         :icon "keyboard_double_arrow_right")
-        (jetpacs-menu-item
-         "Duplicate" (grove-structure-action notebook-id record "duplicate")
-         :icon "content_copy")))
-      (jetpacs-menu-group
-       "Clipboard"
-       (list
-        (jetpacs-menu-item
-         "Copy" (grove-structure-action notebook-id record "copy")
-         :icon "content_copy")
-        (jetpacs-menu-item
-         "Cut" (grove-structure-action notebook-id record "cut")
-         :icon "content_cut")
-        (jetpacs-menu-item
-         "Paste under" (grove-structure-action notebook-id record "paste")
-         :icon "content_paste"
-         :enabled (if paste-ready t :json-false))))
-      (jetpacs-menu-group
-       "Focus"
-       (list
-        (jetpacs-menu-item
-         "Narrow to subtree"
-         (grove-structure-action notebook-id record "narrow")
-         :icon "filter_center_focus")))
-      (jetpacs-menu-group
-       "Remove"
-       (list
-        (jetpacs-menu-item
-         "Archive"
-         (grove-structure-action
-          notebook-id record "archive"
-          "Archive this heading and its complete subtree?")
-         :icon "archive")
-        (jetpacs-menu-item
-         "Delete"
-         (grove-structure-action
-          notebook-id record "delete"
-          "Delete this heading and its complete subtree?")
-         :icon "delete")))))))
+    (jetpacs-with-semantics
+     (jetpacs-menu
+      nil :icon "more_vert"
+      :groups
+      (list
+       (jetpacs-menu-group
+        "Add"
+        (list
+         (jetpacs-menu-item
+          "Insert above"
+          (grove-structure-action notebook-id record "insert-before")
+          :icon "vertical_align_top")
+         (jetpacs-menu-item
+          "Insert below"
+          (grove-structure-action notebook-id record "insert-after")
+          :icon "vertical_align_bottom")
+         (jetpacs-menu-item
+          "Insert child"
+          (grove-structure-action notebook-id record "insert-child")
+          :icon "subdirectory_arrow_right")
+         (jetpacs-menu-item
+          "Refile…" (grove-structure-action notebook-id record "refile")
+          :icon "drive_file_move")))
+       (jetpacs-menu-group
+        "Arrange"
+        (list
+         (jetpacs-menu-item
+          "Move up" (grove-structure-action notebook-id record "move-up")
+          :icon "arrow_upward")
+         (jetpacs-menu-item
+          "Move down" (grove-structure-action notebook-id record "move-down")
+          :icon "arrow_downward")
+         (jetpacs-menu-item
+          "Promote" (grove-structure-action notebook-id record "promote")
+          :icon "keyboard_double_arrow_left")
+         (jetpacs-menu-item
+          "Demote" (grove-structure-action notebook-id record "demote")
+          :icon "keyboard_double_arrow_right")
+         (jetpacs-menu-item
+          "Duplicate" (grove-structure-action notebook-id record "duplicate")
+          :icon "content_copy")))
+       (jetpacs-menu-group
+        "Clipboard"
+        (list
+         (jetpacs-menu-item
+          "Copy" (grove-structure-action notebook-id record "copy")
+          :icon "content_copy")
+         (jetpacs-menu-item
+          "Cut" (grove-structure-action notebook-id record "cut")
+          :icon "content_cut")
+         (jetpacs-menu-item
+          "Paste under" (grove-structure-action notebook-id record "paste")
+          :icon "content_paste"
+          :enabled (if paste-ready t :json-false))))
+       (jetpacs-menu-group
+        "Focus"
+        (list
+         (jetpacs-menu-item
+          "Narrow to subtree"
+          (grove-structure-action notebook-id record "narrow")
+          :icon "filter_center_focus")))
+       (jetpacs-menu-group
+        "Remove"
+        (list
+         (jetpacs-menu-item
+          "Archive"
+          (grove-structure-action
+           notebook-id record "archive"
+           "Archive this heading and its complete subtree?")
+          :icon "archive")
+         (jetpacs-menu-item
+          "Delete"
+          (grove-structure-action
+           notebook-id record "delete"
+           "Delete this heading and its complete subtree?")
+          :icon "delete")))))
+     :name "Heading actions")))
 
 (defun grove-structure--focused-ref (notebook-id)
   "Return NOTEBOOK-ID's live private focus ref, or nil."
@@ -556,18 +558,18 @@ When OFFER-UNDO is non-nil, expose the platform's one live receipt."
 (defun grove-structure-register ()
   "Register Grove's structural outline actions idempotently."
   (with-jetpacs-owner grove-owner
-    (jetpacs-defaction
-     "grove.outline.mutate" #'grove-structure--on-mutate
-     :doc "Apply one revision-bound Grove outline operation")
-    (jetpacs-defaction
-     "grove.outline.undo" #'grove-structure--on-undo
-     :doc "Consume Grove's session-only one-level structural undo")
-    (jetpacs-defaction
-     "grove.outline.widen" #'grove-structure--on-widen
-     :doc "Clear Grove's presentation-only subtree focus")
-    (jetpacs-defaction
-     "grove.outline.expansion" #'grove-structure--on-expansion
-     :doc "Expand or collapse every Grove outline group"))
+                      (jetpacs-defaction
+                       "grove.outline.mutate" #'grove-structure--on-mutate
+                       :doc "Apply one revision-bound Grove outline operation")
+                      (jetpacs-defaction
+                       "grove.outline.undo" #'grove-structure--on-undo
+                       :doc "Consume Grove's session-only one-level structural undo")
+                      (jetpacs-defaction
+                       "grove.outline.widen" #'grove-structure--on-widen
+                       :doc "Clear Grove's presentation-only subtree focus")
+                      (jetpacs-defaction
+                       "grove.outline.expansion" #'grove-structure--on-expansion
+                       :doc "Expand or collapse every Grove outline group"))
   t)
 
 (defun grove-structure-unregister ()

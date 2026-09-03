@@ -112,6 +112,26 @@
      (equal (jetpacs-node->canonical-json (grove-ui-screen nil))
             (jetpacs-node->canonical-json (grove-ui-screen nil))))))
 
+(ert-deftest grove-refresh-pushes-widgets-only-when-granted ()
+  "Snapshot refresh never attempts widget traffic the session declined."
+  (let (pushed)
+    (cl-letf (((symbol-function 'jetpacs-connected-p) (lambda () t))
+              ((symbol-function 'jetpacs-shell-push)
+               (lambda (surface &rest _)
+                 (push surface pushed))))
+      (cl-letf (((symbol-function 'jetpacs-granted-p) (lambda (&rest _) nil)))
+        (grove--push-current-surfaces)
+        (should (equal (nreverse pushed) (list grove-app-surface))))
+      (setq pushed nil)
+      (cl-letf (((symbol-function 'jetpacs-granted-p)
+                 (lambda (capability &rest _)
+                   (equal capability "surfaces.widget"))))
+        (grove--push-current-surfaces)
+        (should (equal (nreverse pushed)
+                       (list grove-app-surface
+                             grove-capture-widget-surface
+                             grove-agenda-widget-surface)))))))
+
 (ert-deftest grove-agenda-selects-deterministic-design-or-exact-material ()
   "Agenda follows the app extension profile without forking its data model."
   (let ((grove-org--snapshot (grove-test--snapshot))
@@ -139,8 +159,12 @@
              (second (grove-ui-presented-screen nil))
              (json (jetpacs-node->canonical-json first)))
         (should (equal (plist-get first :t) "jetpacs.design_scope"))
-        (should (string-search "jetpacs.pressable" json))
-        (should (string-search "#F3EDE1" json))
+        (should (string-search "jetpacs.tabs" json))
+        (should (string-search "\"t\":\"button\"" json))
+        (should-not (string-search "jetpacs.action" json))
+        (should-not (string-search "jetpacs.pressable" json))
+        (should (string-search "\"kind\":\"theme-role\"" json))
+        (should-not (string-match-p "#[[:xdigit:]]\\{6,8\\}" json))
         (should (string-search "grove.agenda.select" json))
         (should (string-search "grove-item-a" json))
         (should (jetpacs-check-profile first 'app))
@@ -171,13 +195,208 @@
              (second (grove-navigation-presented-notebooks-screen nil))
              (json (jetpacs-node->canonical-json first)))
         (should (equal (plist-get first :t) "jetpacs.design_scope"))
-        (should (string-search "jetpacs.pressable" json))
-        (should (string-search "#8A5A2B" json))
+        (should (string-search "\"t\":\"button\"" json))
+        (should (string-search "\"kind\":\"theme-role\"" json))
+        (should-not (string-match-p "#[[:xdigit:]]\\{6,8\\}" json))
         (should (string-search "grove.notebook.open" json))
         (should (string-search "root-note" json))
         (should (jetpacs-check-profile first 'app))
         (should (equal json (jetpacs-node->canonical-json second)))
         (should (<= (jetpacs-node-wire-bytes first) 262144))))))
+
+(ert-deftest grove-design-preset-is-complete-palette-neutral-and-bounded ()
+  "Grove binds every semantic slot without replacing live theme colors."
+  (let* ((profile (grove-design-profile))
+         (tokens (plist-get profile :tokens))
+         (bindings (plist-get profile :component-styles))
+         (scope (jetpacs-design-profile-scope
+                 profile (list (jetpacs-text "Grove")))))
+    (should
+     (equal
+      (sort (mapcar #'car bindings) #'string<)
+      (sort (copy-sequence jetpacs-design-component-style-slots) #'string<)))
+    (dolist (name '("color.primary" "color.on-primary" "color.secondary"
+                    "color.on-secondary" "color.error" "color.on-error"
+                    "color.background" "color.on-background" "color.surface"
+                    "color.on-surface" "color.outline" "color.success"
+                    "color.warning"))
+      (should (equal (plist-get (cdr (assoc name tokens)) :kind)
+                     "theme-role")))
+    (should
+     (equal (mapcar #'car (plist-get profile :typography))
+            '("display" "screen-title" "section-title" "item-title"
+              "reading-body" "body" "supporting" "label-large" "label"
+              "caption" "code" "metadata")))
+    (should-not
+     (string-match-p "#[[:xdigit:]]\\{6,8\\}"
+                     (jetpacs-node->canonical-json scope)))
+    ;; Palette-neutral: no chrome roles, so the Emacs theme stays in charge.
+    (should-not (plist-get profile :theme-roles))
+    (should-not (string-search "theme_roles" (jetpacs-node->canonical-json scope)))
+    (should (<= (jetpacs-node-wire-bytes scope) 262144))))
+
+(ert-deftest grove-design-light-and-dark-presets-carry-the-literal-palette ()
+  "Grove Light and Grove Dark bind the app's verbatim colors and every slot."
+  (dolist (pair `((,(grove-design-light-profile) "#8A5A2B" "#F3EDE1")
+                  (,(grove-design-dark-profile) "#CB9D62" "#16130E")))
+    (let* ((profile (car pair))
+           (tokens (plist-get profile :tokens))
+           (scope (jetpacs-design-profile-scope
+                   profile (list (jetpacs-text "Grove"))))
+           (json (jetpacs-node->canonical-json scope)))
+      (should (equal (plist-get (cdr (assoc "color.primary" tokens)) :kind)
+                     "color"))
+      (should (equal (plist-get (cdr (assoc "color.primary" tokens)) :value)
+                     (nth 1 pair)))
+      (should (equal (plist-get (cdr (assoc "color.background" tokens)) :value)
+                     (nth 2 pair)))
+      ;; Soft fills keep their real alpha instead of an opaque tint.
+      (should (string-match-p "#[[:xdigit:]]\\{8\\}"
+                              (plist-get (cdr (assoc "color.accent-soft" tokens))
+                                         :value)))
+      (should-not (string-search "theme-role" json))
+      ;; Literal presets re-declare all 13 roles, so the receiver's chrome
+      ;; follows the palette; each role points at the preset's own token.
+      (should (= (length (plist-get profile :theme-roles))
+                 (length jetpacs-theme-roles)))
+      (should (string-search "\"theme_roles\":{\"background\":{\"kind\":\"token\",\"value\":\"color.background\"}"
+                             json))
+      (should (string-search "\"on_primary\":{\"kind\":\"token\",\"value\":\"color.on-primary\"}"
+                             json))
+      (should
+       (equal
+        (sort (mapcar #'car (plist-get profile :component-styles)) #'string<)
+        (sort (copy-sequence jetpacs-design-component-style-slots) #'string<)))
+      (should (equal (plist-get profile :typography)
+                     (plist-get (grove-design-profile) :typography)))
+      (should (<= (jetpacs-node-wire-bytes scope) 262144))))
+  (should (equal (mapcar #'car
+                         (seq-filter
+                          (lambda (binding)
+                            (string-prefix-p "text." (car binding)))
+                          grove-design-component-styles))
+                 '("text.body" "text.title" "text.headline" "text.caption"
+                   "text.label" "text.mono"))))
+
+(ert-deftest grove-design-registers-and-removes-all-three-presets ()
+  "Registration exposes every preset to Design Lab and is fully reversible."
+  (grove-design-register)
+  (dolist (id grove-design-preset-ids)
+    (should (jetpacs-design-profile-get id)))
+  (should (equal (plist-get (jetpacs-design-profile-get "grove.light") :label)
+                 "Grove Light"))
+  (grove-design-unregister)
+  (dolist (id grove-design-preset-ids)
+    (should-not (jetpacs-design-profile-get id)))
+  (grove-design-register))
+
+(ert-deftest grove-design-reader-rebinds-body-text-to-serif-prose ()
+  "The document screen nests a scope that rebinds only `text.body'."
+  (let ((grove-document--current nil))
+    (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+               (lambda (extension target)
+                 (and (equal extension "jetpacs.design") (eq target :app)))))
+      (let* ((screen (grove-document-presented-screen nil))
+             (scaffold (aref (plist-get screen :children) 0))
+             (body (plist-get scaffold :body))
+             (json (jetpacs-node->canonical-json screen)))
+        (should (equal (plist-get scaffold :t) "scaffold"))
+        (should (equal (plist-get body :t) "jetpacs.design_scope"))
+        (should (string-search "\"tokens\":{}" (jetpacs-node->canonical-json body)))
+        (should (equal (plist-get (aref (plist-get body :component_styles) 0)
+                                  :slot)
+                       "text.body"))
+        (should (string-search "typography.reading-body" json))
+        (should (jetpacs-check-profile screen 'app))
+        ;; Only the document kind gets the nested prose scope.
+        (let ((settings (grove-navigation-presented-settings-screen nil)))
+          (should-not (equal (plist-get (plist-get (aref (plist-get settings :children) 0)
+                                                   :body)
+                                        :t)
+                             "jetpacs.design_scope"))))
+      ;; A portable profile without reading prose leaves the body untouched.
+      (let* ((id "grove-test-no-prose")
+             (profile (jetpacs-design-make-profile
+                       id "No prose" :tokens nil :typography nil
+                       :styles nil :motions nil :component-styles nil)))
+        (unwind-protect
+            (progn
+              (jetpacs-design-register-profile profile)
+              (let* ((jetpacs-design-active-profile-id id)
+                     (screen (grove-document-presented-screen nil))
+                     (scaffold (aref (plist-get screen :children) 0)))
+                (should-not (equal (plist-get (plist-get scaffold :body) :t)
+                                   "jetpacs.design_scope"))))
+          (jetpacs-design-unregister-profile id))))))
+
+(ert-deftest grove-design-covers-every-app-screen-and-preserves-fallbacks ()
+  "All seven Grove screen kinds share the runtime gate and exact fallback."
+  (let ((grove-navigation--notebook-id nil)
+        (grove-document--current nil)
+        (grove-document--planning nil)
+        (pairs
+         '((grove-navigation-outline-screen
+            grove-navigation-presented-outline-screen)
+           (grove-navigation-search-screen
+            grove-navigation-presented-search-screen)
+           (grove-navigation-settings-screen
+            grove-navigation-presented-settings-screen)
+           (grove-document-screen grove-document-presented-screen)
+           (grove-document-planning-screen
+            grove-document-presented-planning-screen))))
+    (dolist (pair pairs)
+      (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+                 (lambda (&rest _) nil)))
+        (should (equal (funcall (cadr pair) nil)
+                       (funcall (car pair) nil))))
+      (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+                 (lambda (extension target)
+                   (and (equal extension "jetpacs.design")
+                        (eq target :app)))))
+        (let ((screen (funcall (cadr pair) nil)))
+          (should (equal (plist-get screen :t) "jetpacs.design_scope"))
+          (should (jetpacs-check-profile screen 'app)))))))
+
+(ert-deftest grove-design-accepts-a-portable-active-profile ()
+  "A global profile need not define Grove-private style names."
+  (let* ((id "grove-test-portable")
+         (profile
+          (jetpacs-design-make-profile
+           id "Portable test"
+           :tokens `(("accent" . ,(jetpacs-design-theme-role "primary")))
+           :typography nil
+           :styles
+           `(("portable.action"
+              . ,(jetpacs-design-style
+                  `(("content_color" . ,(jetpacs-design-token "accent"))))))
+           :motions nil
+           :component-styles
+           '(("action.label" . ("portable.action"))))))
+    (unwind-protect
+        (progn
+          (jetpacs-design-register-profile profile)
+          (let ((jetpacs-design-active-profile-id id))
+            (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+                       (lambda (&rest _) t)))
+              (let ((json
+                     (jetpacs-node->canonical-json
+                      (grove-navigation-presented-settings-screen nil))))
+                (should (string-search "portable.action" json))
+                (should-not (string-search "radius.panel" json))
+                (should-not (string-search "jetpacs.pressable" json))
+                (should (string-search "\"t\":\"button\"" json))))))
+      (jetpacs-design-unregister-profile id))))
+
+(ert-deftest grove-agenda-semantic-tabs-inject-the-selected-value ()
+  "The design Tabs event uses the same Agenda action as Material buttons."
+  (let ((grove-agenda-range "today") deferred)
+    (cl-letf (((symbol-function 'jetpacs-app-defer-refresh)
+               (lambda (_params) (setq deferred t))))
+      (should (eq (grove--on-select-range
+                   '(:value "upcoming") '(:surface "app:grove"))
+                  'accepted))
+      (should (equal grove-agenda-range "upcoming"))
+      (should deferred))))
 
 (ert-deftest grove-agenda-row-uses-reveal-first-deep-commit-swipe ()
   "A normal swipe reveals two actions; only the deeper gesture commits Done."
@@ -194,6 +413,57 @@
                       (plist-get (aref actions 0) :on_trigger) :action)
                      "grove.agenda.done"))
       (should (equal (plist-get (aref actions 1) :label) "Open")))))
+
+(ert-deftest grove-rows-use-the-list-item-node-only-where-it-is-drawable ()
+  "App rows take the Jetpacs row; widget rows keep the canonical one.
+The node is declared for the app target only, so the widget projection
+must degrade even offline, where the profile question has no answer."
+  (let ((grove-org--snapshot (grove-test--snapshot))
+        (grove-library--snapshot (grove-test--library-snapshot))
+        (grove-agenda-range "today"))
+    (let ((app (jetpacs-node->canonical-json (grove-ui-screen nil)))
+          (widget (jetpacs-node->canonical-json
+                   (grove-widgets-agenda-surface))))
+      (should (string-search "jetpacs.list_item" app))
+      (should-not (string-search "jetpacs.list_item" widget))
+      ;; Both still carry the row's identity and its durable action.
+      (should (string-search "grove-item-a" app))
+      (should (string-search "grove-item-a" widget)))
+    (should (string-search
+             "jetpacs.list_item"
+             (jetpacs-node->canonical-json
+              (grove-navigation-notebooks-screen nil))))))
+
+(ert-deftest grove-menus-are-named-and-bound-to-the-popup-face ()
+  "Every Grove menu announces itself, and the menu slots reach a profile.
+
+An un-annotated menu falls back to its icon identifier for an accessible
+name, which announces as \"more_vert\"; the authored name is what stops
+that.  The bindings are asserted separately because a menu drawn by the
+Foundation renderer takes its whole appearance from them."
+  (let ((menus (list (grove-structure-menu
+                      "nb" '(:id "heading-1" :revision 3))
+                     (grove-navigation--notebook-menu
+                      (car (plist-get (grove-test--library-snapshot)
+                                      :notebooks)))
+                     (plist-get (grove-views-row
+                                 '(:id "v1" :label "Today" :source "grove"))
+                                :trailing))))
+    (dolist (menu menus)
+      (should (equal (plist-get menu :t) "menu"))
+      (should (stringp (plist-get (plist-get menu :semantics) :name)))
+      (should-not (equal (plist-get (plist-get menu :semantics) :name)
+                         "more_vert"))))
+  (dolist (slot '("menu.trigger" "menu.container" "menu.item"
+                  "menu.item-label" "menu.item-supporting"
+                  "menu.group-label"))
+    (should (assoc slot grove-design-component-styles)))
+  ;; The popup is a surface, not a row: it must not inherit the flat row.
+  (should (equal (cdr (assoc "menu.container" grove-design-component-styles))
+                 '("grove.popup")))
+  ;; Menu labels match the app's own DropdownMenuItem scale.
+  (should (equal (cdr (assoc "menu.item-label" grove-design-component-styles))
+                 '("typography.label-large"))))
 
 (ert-deftest grove-widgets-are-live-profile-valid-snapshot-projections ()
   "Capture and Agenda widgets stay inside the negotiated Glance vocabulary."
@@ -1088,7 +1358,8 @@
                  '("notebooks" "agenda" "search" "settings")))
   (let ((entry (cdr (assoc grove-owner jetpacs-apps--registry))))
     (should (eq (plist-get entry :chrome) 'primary))
-    (should (equal (plist-get entry :home-route) "notebooks")))
+    (should (equal (plist-get entry :home-route) "notebooks"))
+    (should-not (plist-get entry :requires-extensions)))
   (should (jetpacs-check-profile
            (grove-navigation-settings-screen nil) 'app))
   (let ((grove-library-tree-view t)

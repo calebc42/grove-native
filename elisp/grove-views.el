@@ -21,6 +21,7 @@
 (require 'jetpacs-dialog)
 (require 'jetpacs-org-reminders)
 (require 'jetpacs-shell)
+(require 'jetpacs-components)
 (require 'jetpacs-widgets)
 (require 'grove-core)
 (require 'grove-library)
@@ -141,31 +142,28 @@ configuration contains no Android identity or protocol state."
 
 (defun grove-views-row (view)
   "Build one saved VIEW row."
-  (jetpacs-with-attrs
-   (jetpacs-card
-    (jetpacs-row
-     (jetpacs-icon
-      (if (equal (plist-get view :source) "emacs")
-          "terminal" "bookmark")
-      :content-description
-      (if (equal (plist-get view :source) "emacs")
-          "Emacs custom agenda" "Grove saved view"))
-     (jetpacs-with-attrs
-      (jetpacs-column
-       (jetpacs-text (plist-get view :label) :max-lines 2)
-       (jetpacs-text (grove-views--kind-label view)
-                     :style "caption" :max-lines 2)
-       :spacing 2)
-      :weight 1)
-     (when (equal (plist-get view :source) "grove")
-       (jetpacs-menu
-        (list
-         (jetpacs-menu-item
-          "Delete" (grove-views--delete-action view) :icon "delete"))
-        :icon "more_vert"))
-     :spacing 8 :align "center")
-    :on-tap (grove-views-run-action view) :variant "outlined")
-   :key (plist-get view :id)))
+  (let* ((leading (jetpacs-icon
+                   (if (equal (plist-get view :source) "emacs")
+                       "terminal" "bookmark")
+                   :content-description
+                   (if (equal (plist-get view :source) "emacs")
+                       "Emacs custom agenda" "Grove saved view")))
+         (trailing (when (equal (plist-get view :source) "grove")
+                     (jetpacs-with-semantics
+                      (jetpacs-menu
+                       (list
+                        (jetpacs-menu-item
+                         "Delete" (grove-views--delete-action view) :icon "delete"))
+                       :icon "more_vert")
+                      :name "View actions"))))
+    (jetpacs-components-list-item
+     (plist-get view :label)
+     :subtitle (grove-views--kind-label view)
+     :title-max-lines 2 :subtitle-max-lines 2
+     :leading leading
+     :trailing trailing
+     :on-tap (grove-views-run-action view)
+     :key (plist-get view :id))))
 
 (defun grove-views-nodes ()
   "Return saved-view section nodes for Grove's Search screen."

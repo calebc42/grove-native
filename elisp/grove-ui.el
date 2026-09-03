@@ -17,6 +17,7 @@
 (require 'subr-x)
 (require 'jetpacs-chrome)
 (require 'jetpacs-shell)
+(require 'jetpacs-components)
 (require 'jetpacs-widgets)
 (require 'grove-core)
 (require 'grove-design)
@@ -79,23 +80,20 @@ the deep swipe commit."
          icon :on-tap (grove-ui--item-done-action (plist-get item :id)))
       icon)))
 
-(defun grove-ui-agenda-row (item &optional compact interactive rich-swipe)
+(defun grove-ui-agenda-row (item &optional compact interactive rich-swipe
+                                 target)
   "Build one Grove agenda ITEM row.
 COMPACT omits tags and clamps text for widgets.  INTERACTIVE enables row
-opening.  RICH-SWIPE enables the app-only reveal-first swipe actions."
+opening.  RICH-SWIPE enables the app-only reveal-first swipe actions.
+TARGET is the render target the row is bound for, defaulting to `:app';
+the widget profile advertises fewer nodes, so its caller passes `:widget'
+and the row degrades to the canonical composition."
   (let* ((item-id (plist-get item :id))
          (headline (or (plist-get item :headline) "Untitled"))
          (meta (grove-ui--item-meta
                 (if compact
                     (plist-put (copy-sequence item) :tags nil)
                   item)))
-         (middle
-          (jetpacs-with-attrs
-           (jetpacs-column
-            (jetpacs-text headline :max-lines (if compact 2 3))
-            (jetpacs-text meta :style "caption" :max-lines 1)
-            :spacing 2)
-           :weight 1))
          (trailing
           (when-let* ((priority (plist-get item :priority)))
             (jetpacs-badge (format "#%s" priority)
@@ -113,20 +111,17 @@ opening.  RICH-SWIPE enables the app-only reveal-first swipe actions."
                  (jetpacs-swipe-action
                   "Open" :icon "arrow_forward" :color "secondary"
                   :on-trigger open))
-                :commit t)))
-         (row
-          (apply #'jetpacs-row
-                 (append
-                  (list (grove-ui--item-leading item interactive) middle)
-                  (when trailing (list trailing))
-                  (list :align "center" :spacing 10)))))
-    (jetpacs-with-attrs
-     (apply #'jetpacs-card
-            (append (list row)
-                    (when open (list :on-tap open))
-                    (when swipe (list :swipe-end swipe))
-                    (list :variant "outlined")))
-     :key item-id)))
+                :commit t))))
+    (jetpacs-components-list-item
+     headline
+     :subtitle meta
+     :title-max-lines (if compact 2 3) :subtitle-max-lines 1
+     :leading (grove-ui--item-leading item interactive)
+     :trailing trailing
+     :on-tap open
+     :swipe-end swipe
+     :key item-id
+     :target (or target :app))))
 
 (defun grove-ui--items-for-range (snapshot range)
   "Return SNAPSHOT items admitted by Grove agenda RANGE."
@@ -229,10 +224,7 @@ opening.  RICH-SWIPE enables the app-only reveal-first swipe actions."
 
 (defun grove-ui-presented-screen (back)
   "Build Agenda with BACK for the advertised app design extension."
-  (let ((screen (grove-ui-screen back)))
-    (if (jetpacs-extension-advertised-p "jetpacs.design" :app)
-        (grove-design-present-screen screen 'agenda)
-      screen)))
+  (grove-design-present-if-advertised (grove-ui-screen back) 'agenda))
 
 (provide 'grove-ui)
 ;;; grove-ui.el ends here

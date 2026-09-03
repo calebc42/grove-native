@@ -24,6 +24,7 @@
 (require 'jetpacs-shell)
 (require 'jetpacs-widgets)
 (require 'grove-core)
+(require 'grove-design)
 (require 'grove-library)
 (require 'grove-org)
 
@@ -97,7 +98,7 @@ Return a handler status."
              (condition-case push-error
                  (jetpacs-chrome-push-screen
                   (or (plist-get params :surface) grove-app-surface)
-                  grove-document--screen-id #'grove-document-screen)
+                  grove-document--screen-id #'grove-document-presented-screen)
                (error
                 (message "grove: document push failed (%s)"
                          (car push-error))))))
@@ -252,7 +253,7 @@ Return a handler status."
                      (grove-document--set-current notebook-id heading-id)
                      (jetpacs-chrome-push-screen
                       surface grove-document--screen-id
-                      #'grove-document-screen)))
+                      #'grove-document-presented-screen)))
                (grove-ui-open-outline notebook-id)))
             t)))))))
 
@@ -353,6 +354,11 @@ Return a handler status."
       (jetpacs-empty-state :icon "error" :title "Document unavailable"
                            :caption "Refresh the notebook and try again.")
       :back back))))
+
+(defun grove-document-presented-screen (back)
+  "Build the profile-selected document reader or editor with BACK."
+  (grove-design-present-if-advertised
+   (grove-document-screen back) 'document))
 
 (defun grove-document--on-open (args params)
   "Open a document named by opaque ARGS on PARAMS' surface."
@@ -598,7 +604,7 @@ SCHEDULED or DEADLINE wins according to FOCUS, followed by the other field."
                (jetpacs-chrome-push-screen
                 (or (plist-get params :surface) grove-app-surface)
                 grove-document--planning-screen-id
-                #'grove-document-planning-screen)))
+                #'grove-document-presented-planning-screen)))
             'accepted)
         (ebp-org-unresolved 'stale)
         (error
@@ -1047,6 +1053,11 @@ fallback so an older member profile still distinguishes the two targets."
          :icon "done" :variant "filled")
         :spacing 10 :content-padding 12)
        :back back))))
+
+(defun grove-document-presented-planning-screen (back)
+  "Build the profile-selected planning canvas with BACK."
+  (grove-design-present-if-advertised
+   (grove-document-planning-screen back) 'planning))
 
 (defconst grove-document--verbs
   '("grove.document.open" "grove.document.mode" "grove.document.save"
