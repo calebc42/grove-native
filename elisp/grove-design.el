@@ -378,6 +378,44 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
     ("grove.indent"
      . ,(jetpacs-design-style
          `(("padding_start" . ,(jetpacs-design-dimension 20)))))
+    ;; The planning calendar: the app's 37 dp rounded day cells in Plex Mono,
+    ;; ten-point weekday initials, a hairline ring for today, and the soft
+    ;; accent band between the two endpoints.
+    ("grove.calendar-weekday"
+     . ,(jetpacs-design-style
+         `(("font_size" . ,(jetpacs-design-dimension 10))
+           ("content_color" . ,(grove-design--token "color.faint")))))
+    ("grove.day"
+     . ,(jetpacs-design-style
+         `(("min_height" . ,(jetpacs-design-dimension 37))
+           ("corner_radius" . ,(jetpacs-design-dimension 10))
+           ("content_color" . ,(grove-design--token "color.on-background")))
+         :rules
+         (list
+          (jetpacs-design-rule
+           "selected"
+           `(("background_color" . ,(grove-design--token "color.primary"))
+             ("content_color" . ,(grove-design--token "color.on-primary")))
+           :motion "selection")
+          (jetpacs-design-rule
+           "hovered"
+           `(("background_color" . ,(grove-design--token "color.surface-raised")))
+           :motion "hover-focus")
+          (jetpacs-design-rule
+           "focused"
+           `(("border_color" . ,(grove-design--token "color.primary"))
+             ("border_width" . ,(jetpacs-design-dimension 2)))
+           :motion "hover-focus")
+          (jetpacs-design-rule
+           "disabled" `(("alpha" . ,(jetpacs-design-number 0.38)))
+           :motion "hover-focus"))))
+    ("grove.today"
+     . ,(jetpacs-design-style
+         `(("border_width" . ,(jetpacs-design-dimension 1))
+           ("border_color" . ,(grove-design--token "color.line")))))
+    ("grove.band"
+     . ,(jetpacs-design-style
+         `(("background_color" . ,(grove-design--token "color.accent-soft")))))
     ("grove.accent"
      . ,(jetpacs-design-style
          `(("content_color" . ,(grove-design--token "color.primary")))))
@@ -432,6 +470,14 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
     ("collapsible.header" . ("grove.disclosure"))
     ("collapsible.chevron" . ("grove.muted"))
     ("collapsible.body" . ("grove.indent"))
+    ("month-grid.container" . ("grove.surface"))
+    ("month-grid.header" . ("typography.item-title"))
+    ("month-grid.nav" . ("grove.interactive"))
+    ("month-grid.weekday" . ("typography.caption" "grove.calendar-weekday"))
+    ("month-grid.day" . ("typography.code" "grove.day"))
+    ("month-grid.today" . ("grove.today"))
+    ("month-grid.range" . ("grove.band"))
+    ("month-grid.mark" . ("grove.accent"))
     ("badge.container" . ("grove.chip"))
     ("badge.label" . ("typography.metadata"))
     ("empty-state.container" . ("grove.screen"))
