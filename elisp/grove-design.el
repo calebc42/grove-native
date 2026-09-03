@@ -358,6 +358,26 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
            "selected"
            `(("background_color" . ,(grove-design--token "color.on-primary")))
            :motion "selection"))))
+    ;; An outline heading discloses its children from a small muted chevron;
+    ;; the header row itself stays flat and the children indent under it.
+    ("grove.disclosure"
+     . ,(jetpacs-design-style
+         `(("content_color" . ,(grove-design--token "color.on-background"))
+           ("min_height" . ,(jetpacs-design-dimension 48)))
+         :rules
+         (list
+          (jetpacs-design-rule
+           "hovered"
+           `(("background_color" . ,(grove-design--token "color.surface-raised")))
+           :motion "hover-focus")
+          (jetpacs-design-rule
+           "focused"
+           `(("border_color" . ,(grove-design--token "color.primary"))
+             ("border_width" . ,(jetpacs-design-dimension 2)))
+           :motion "hover-focus"))))
+    ("grove.indent"
+     . ,(jetpacs-design-style
+         `(("padding_start" . ,(jetpacs-design-dimension 20)))))
     ("grove.accent"
      . ,(jetpacs-design-style
          `(("content_color" . ,(grove-design--token "color.primary")))))
@@ -409,6 +429,9 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
     ("switch.track" . ("grove.switch-track"))
     ("switch.thumb" . ("grove.switch-thumb"))
     ("switch.label" . ("typography.body"))
+    ("collapsible.header" . ("grove.disclosure"))
+    ("collapsible.chevron" . ("grove.muted"))
+    ("collapsible.body" . ("grove.indent"))
     ("badge.container" . ("grove.chip"))
     ("badge.label" . ("typography.metadata"))
     ("empty-state.container" . ("grove.screen"))
