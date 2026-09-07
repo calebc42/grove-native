@@ -151,3 +151,12 @@ The original Kotlin app remains the visual and workflow acceptance reference.
 The next useful planning slice is structured time-range and repeater controls;
 their timestamp semantics should continue to come from Emacs or reusable
 Jetpacs platform seams.
+
+## Jetpacs outline
+
+The Jetpacs applet keeps Grove's notebook typography and theme while separating
+browsing from reading. Parent headings show their workflow state and immediate
+section count above the title. Tap the disclosure header to expand its children,
+or choose **Read** to open the parent document. Leaf headings open directly.
+Decorative heading arrows are omitted; only headings with children have a
+functional disclosure control. Structure menus and swipe actions remain available.

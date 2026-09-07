@@ -329,17 +329,23 @@
               (plist-get record :title)
               :subtitle (plist-get record :preview)
               :title-max-lines 3 :subtitle-max-lines 2
-              :leading (jetpacs-icon
-                        (if (plist-get record :done) "check_circle"
-                          (if children "account_tree" "chevron_right"))
-                        :content-description "Org heading")
-              ;; One trailing node, as the member is typed: the state badge
-              ;; and the structure menu travel together in a row.
-              :trailing (if todo
-                            (jetpacs-row (jetpacs-badge todo) menu
-                                         :spacing 8 :align "center")
-                          menu)
-              :on-tap open
+              :overline (when (or todo children)
+                          (string-join
+                           (delq nil
+                                 (list todo
+                                       (when children
+                                         (format "%d section%s" (length children)
+                                                 (if (= (length children) 1)
+                                                     "" "s")))))
+                           " · "))
+              ;; The enclosing disclosure owns expansion.  Its header has
+              ;; no competing tap target; reading is an explicit action.
+              :trailing (jetpacs-row
+                         (when children
+                           (jetpacs-button "Read" open
+                                           :variant "text" :size "small"))
+                         menu :spacing 4 :align "center")
+              :on-tap (unless children open)
               :swipe-start
               (grove-structure-swipe-start
                grove-navigation--notebook-id record)
@@ -376,13 +382,22 @@
                     ((not (string-blank-p preface))))
           (push (jetpacs-card
                  (jetpacs-column
-                  (jetpacs-text "Preface" :style "label")
+                  (jetpacs-text "Introduction" :style "label")
                   (jetpacs-text preface :syntax "org" :max-lines 12)
                   :spacing 4)
                  :variant "outlined")
                 children))
         (setq children
-              (append (nreverse children)
+              (append
+               (list
+                (jetpacs-column
+                 (jetpacs-text (if focused "Focused outline" "In this notebook")
+                               :style "title")
+                 (jetpacs-text
+                  "Expand sections to browse. Choose Read to open a parent heading."
+                  :style "caption")
+                 :spacing 4))
+               (nreverse children)
                       (if records
                           (grove-navigation--outline-children records nil)
                         (list
@@ -400,7 +415,7 @@
          (concat (or (plist-get snapshot :label) "Outline")
                  (if focused " · Focus" ""))
          (apply #'jetpacs-lazy-column
-                (append children (list :spacing 8 :content-padding 12)))
+                (append children (list :spacing 12 :content-padding 16)))
          :back back
          :actions
          (delq

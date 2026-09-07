@@ -2,10 +2,11 @@
 set -eu
 
 grove_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-jetpacs_root=${JETPACS_ROOT:-"$grove_root/../jetpacs/jetpacs-poc/jetpacs"}
-ebp_el_root=${EBP_EL_ROOT:-"$grove_root/../jetpacs/jetpacs-poc/ebp-poc/ebp.el"}
-ebp_org_root=${EBP_ORG_ROOT:-"$grove_root/../jetpacs/jetpacs-poc/ebp-poc/ebp-org"}
-jetpacs_components_root=${JETPACS_COMPONENTS_ROOT:-"$grove_root/../jetpacs/jetpacs-poc/jetpacs-components"}
+repositories_root=${JETPACS_REPOSITORIES_ROOT:-"$(CDPATH= cd -- "$grove_root/.." && pwd)"}
+jetpacs_root=${JETPACS_ROOT:-"$repositories_root/jetpacs-poc"}
+ebp_el_root=${EBP_EL_ROOT:-"$repositories_root/ebp.el"}
+ebp_org_root=${EBP_ORG_ROOT:-"$repositories_root/ebp-org"}
+jetpacs_components_root=${JETPACS_COMPONENTS_ROOT:-"$jetpacs_root/jetpacs-components"}
 
 emacs -Q --batch \
   --eval '(setq load-prefer-newer t)' \

@@ -1253,6 +1253,35 @@ Foundation renderer takes its whole appearance from them."
     (should-not (string-search ":file" json))
     (should-not (string-search "/home/" json))))
 
+(ert-deftest grove-outline-disclosure-and-reading-have-distinct-targets ()
+  "Only parents disclose children; every heading retains a reading action."
+  (let* ((grove-navigation--notebook-id "grove-notebook-test")
+         (records '((:id "parent" :parent-id nil :title "Parent" :todo "TODO")
+                    (:id "child" :parent-id "parent" :title "Child")
+                    (:id "leaf" :parent-id nil :title "Leaf"))))
+    (dolist (advertised '(nil t))
+      (cl-letf (((symbol-function 'jetpacs-node-advertised-p)
+                 (lambda (&rest _) advertised)))
+        (let* ((rows (grove-navigation--outline-children records nil))
+               (parent (car rows))
+               (leaf (cadr rows))
+               (header (plist-get parent :header))
+               (json (jetpacs-node->canonical-json
+                      (apply #'jetpacs-column rows))))
+          (should (equal (plist-get parent :t) "collapsible"))
+          (should-not (plist-get header :on_tap))
+          (should (equal (plist-get (plist-get leaf :on_tap) :action)
+                         "grove.document.open"))
+          (should-not (string-search "chevron_right" json))
+          (should-not (string-search "account_tree" json))
+          (should (string-search "TODO · 1 section" (decode-coding-string json 'utf-8)))
+          (should (string-search "Read" json))
+          (should (equal json
+                         (jetpacs-node->canonical-json
+                          (apply #'jetpacs-column
+                                 (grove-navigation--outline-children
+                                  records nil))))))))))
+
 (ert-deftest grove-outline-mutation-is-revision-bound-and-undoable ()
   "A live opaque row can move and undo; a later local edit makes it stale."
   (let* ((root (make-temp-file "grove-structure" t))
