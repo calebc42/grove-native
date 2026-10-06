@@ -131,7 +131,8 @@
   (with-jetpacs-owner "grove"
     (jetpacs-chrome-define-root "grove" "notebooks"
                                 #'grove-navigation-presented-notebooks-screen
-                                :required t)
+                                :required t
+                                :data-builder #'grove-document-surface-data)
     (jetpacs-defaction
      "grove.agenda.refresh" #'grove--on-refresh
      :doc "Refresh Grove's agenda snapshot from Emacs Org")

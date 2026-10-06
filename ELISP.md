@@ -72,6 +72,23 @@ restore the complete buffer if any pre-durability transform fails, and then use
 the normal Org/Files save policy. Planning performs the same revision check
 before its paired atomic mutation.
 
+The planning canvas is the reference pilot for EBP's surface data document
+(§13.8, capability `data.model`). Every value a picker tap changes — the two
+timestamps, the dates and times behind the picker buttons and their labels,
+the calendar month, its marks and day styles, the selection or range, the
+target buttons' focus, and the feedback card's words — is bound to the
+`/planning` object that `grove-document-surface-data` builds from the same
+draft state the screen builders read. A tap that changes values alone
+patches that object through `jetpacs-app-defer-patch` (one `surface.data`
+frame of under a kilobyte, the Companion re-materializing the screen it
+holds); a tap that changes the shape of the tree — the feedback card
+appearing or disappearing — re-pushes the stack as before. The calendar and
+quick picks carry no target in their arguments: the focused target lives in
+the draft, so the handler reads it there, and the runway suggestion is
+computed when its button is tapped (`grove.planning.suggest`) rather than
+baked into the tree. A Companion without `data.model` receives the same
+screens with the bindings resolved in Emacs.
+
 ## Configuration
 
 Grove treats `jetpacs-org-mode-agenda-scope` as its notebook and search scope.

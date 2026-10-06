@@ -1082,8 +1082,22 @@ Foundation renderer takes its whole appearance from them."
              'stale))
         (should-not called)))))
 
+(defun grove-test--json (value)
+  "VALUE's canonical JSON as a multibyte string, searchable for any text."
+  (let ((json (jetpacs-node->canonical-json value)))
+    (if (multibyte-string-p json) json (decode-coding-string json 'utf-8))))
+
+(defun grove-test--materialized-planning-json ()
+  "The planning screen as the Companion renders it: bound members resolved."
+  (grove-test--json
+   (jetpacs-data-materialize (grove-document-planning-screen nil)
+                             (grove-document-surface-data)
+                             :strip t)))
+
 (ert-deftest grove-planning-calendar-is-pure-styled-and-profile-valid ()
-  "The combined calendar is a pure projection with a styled planning range."
+  "The combined calendar is a pure projection with a styled planning range.
+Its values travel in the surface data document (SPEC 13.8): the authored
+screen binds them, the materialized screen shows them."
   (let ((grove-document--planning
          '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
            :scheduled "<2026-09-04 Fri 09:00 +1w>"
@@ -1097,17 +1111,43 @@ Foundation renderer takes its whole appearance from them."
                  (and (equal type "month_grid")
                       (equal member "day_styles")))))
       (let* ((screen (grove-document-planning-screen nil))
-             (json (jetpacs-node->canonical-json screen)))
+             (authored (grove-test--json screen))
+             (json (grove-test--materialized-planning-json)))
         (should (jetpacs-check-profile screen 'app))
+        ;; Authored: bindings in place of every draft-dependent value.
+        (should (string-search "\"range_start\":\"/planning/range_start\""
+                               authored))
+        (should (string-search "\"value\":\"/planning/scheduled/value\""
+                               authored))
+        (should (string-search "\"variant\":\"/planning/deadline/target_variant\""
+                               authored))
+        (should-not (string-search "2026-09-04" authored))
+        (should-not (string-search "09:00" authored))
+        ;; Materialized: what the literal screen carried.
+        (should-not (string-search "\"bind\"" json))
         (should (string-search "\"range_start\":\"2026-09-04\"" json))
         (should (string-search "\"range_end\":\"2026-09-08\"" json))
         (should (string-search "\"day_styles\"" json))
         (should (string-search "\"background\":\"primary\"" json))
         (should (string-search "\"background\":\"error\"" json))
+        (should (string-search "\"2026-09-06\":{\"dots\":1}" json))
+        (should (string-search "\"value\":\"<2026-09-04 Fri 09:00 +1w>\"" json))
+        (should (string-search "\"label\":\"2026-09-04\"" json))
+        (should (string-search "\"label\":\"09:00\"" json))
+        (should (string-search "\"label\":\"Add time\"" json))
+        (should (string-search "Scheduled · 2026-09-04" json))
+        (should (string-search "\"variant\":\"filled\"" json))
         (should (string-search "grove.planning.focus" json))
         (should (string-search "grove.planning.month" json))
         (should (string-search "Clear both" json))
-        (should (string-search "4 days between scheduled and deadline" json))))))
+        (should (string-search "4 days between scheduled and deadline" json))
+        ;; The document is the handler's patch, byte for byte.
+        (should (equal (grove-test--json
+                        (jetpacs-data-set "/planning" (grove-document-planning-data)))
+                       (grove-test--json
+                        (jetpacs-data-set "/planning"
+                                          (plist-get (grove-document-surface-data)
+                                                     :planning)))))))))
 
 (ert-deftest grove-planning-calendar-degrades-day-styles-to-colored-marks ()
   "A constrained member profile gets marks instead of day_styles."
@@ -1118,26 +1158,30 @@ Foundation renderer takes its whole appearance from them."
            :marks nil)))
     (cl-letf (((symbol-function 'jetpacs-node-member-advertised-p)
                (lambda (&rest _) nil)))
-      (let ((json (jetpacs-node->canonical-json
-                   (grove-document-planning-screen nil))))
+      (let ((json (grove-test--materialized-planning-json)))
         (should-not (string-search "\"day_styles\"" json))
         (should (string-search "\"color\":\"primary\"" json))
         (should (string-search "\"color\":\"error\"" json))))))
 
 (ert-deftest grove-planning-actions-preserve-captured-pair-and-validate-dates ()
-  "Calendar transitions preserve local edits and reject malformed injection."
+  "Calendar transitions preserve local edits and reject malformed injection.
+A change of values alone patches the surface data document; a change
+of the feedback card's shape re-pushes the stack."
   (let ((grove-document--planning
          '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
            :scheduled "<2026-09-04 Fri 09:00 +1w>"
            :deadline "" :focus "scheduled" :today "2026-09-01"
            :month "2026-09" :marks nil))
-        mark-months refreshed)
+        mark-months published)
     (cl-letf (((symbol-function 'grove-org-planning-marks)
                (lambda (month)
                  (push month mark-months)
                  (list (cons (concat month "-02") 1))))
               ((symbol-function 'jetpacs-app-defer-refresh)
-               (lambda (&rest _) (setq refreshed t))))
+               (lambda (&rest _) (push 'refresh published)))
+              ((symbol-function 'jetpacs-app-defer-patch)
+               (lambda (ops &rest _) (push (cons 'patch ops) published))))
+      ;; A lone scheduled date becomes a pair: the feedback card appears.
       (should
        (eq (grove-document--on-planning-pick
             '(:field "scheduled" :kind "date" :value "2026-10-07")
@@ -1150,8 +1194,37 @@ Foundation renderer takes its whole appearance from them."
                      "<2026-10-11 Sun>"))
       (should (equal (plist-get grove-document--planning :month) "2026-10"))
       (should (equal mark-months '("2026-10")))
-      (should refreshed)
-      (setq refreshed nil)
+      (should (equal published '(refresh)))
+      ;; Moving focus changes values only: one patch of the whole object.
+      (should
+       (eq (grove-document--on-planning-focus
+            '(:field "deadline")
+            '(:fields (:grove-scheduled "<2026-10-07 09:00 +1w>"
+                       :grove-deadline "<2026-10-11 Sun>")))
+           'accepted))
+      (should (eq (car (car published)) 'patch))
+      (let* ((ops (cdr (car published)))
+             (planning (plist-get (car ops) :value)))
+        (should (= (length ops) 1))
+        (should (equal (plist-get (car ops) :path) "/planning"))
+        (should (equal (grove-test--json (car ops))
+                       (grove-test--json
+                        (jetpacs-data-set "/planning"
+                                          (grove-document-planning-data)))))
+        (should (equal (plist-get planning :month) "2026-10"))
+        (should (equal (plist-get planning :range_start) "2026-10-07"))
+        (should (equal (plist-get planning :range_end) "2026-10-11"))
+        (should-not (plist-member planning :selected))
+        (should (equal (plist-get (plist-get planning :deadline) :target_variant)
+                       "filled"))
+        (should (equal (plist-get (plist-get planning :scheduled) :target_variant)
+                       "outlined"))
+        (should (equal (plist-get (plist-get planning :scheduled) :time) "09:00"))
+        (should (equal (plist-get (plist-get planning :feedback) :text)
+                       "4 days between scheduled and deadline."))
+        (should (equal (gethash "2026-10-02" (plist-get planning :marks))
+                       '(:dots 1))))
+      ;; Shorthand drafts dissolve the pair: the card goes, so the stack does.
       (should
        (eq (grove-document--on-planning-month
             '(:value "2026-11")
@@ -1162,19 +1235,89 @@ Foundation renderer takes its whole appearance from them."
                      "nov 2 09:00"))
       (should (equal (plist-get grove-document--planning :deadline) "nov 9"))
       (should (equal mark-months '("2026-11" "2026-10")))
-      (let ((before (copy-tree grove-document--planning)))
+      (should (eq (car published) 'refresh))
+      (let ((before (copy-tree grove-document--planning))
+            (shown (length published)))
         (should
          (eq (grove-document--on-planning-pick
               '(:field "deadline" :kind "date" :value "2026-02-30") nil)
              'rejected))
-        (should (equal grove-document--planning before)))
+        (should (equal grove-document--planning before))
+        (should (= (length published) shown)))
       (should
        (eq (grove-document--on-planning-clear
             '(:field "both")
             '(:fields (:grove-scheduled "keep?" :grove-deadline "keep?")))
            'accepted))
       (should (equal (plist-get grove-document--planning :scheduled) ""))
-      (should (equal (plist-get grove-document--planning :deadline) "")))))
+      (should (equal (plist-get grove-document--planning :deadline) ""))
+      (should (eq (car (car published)) 'patch)))))
+
+(ert-deftest grove-planning-focus-serves-calendar-taps-and-suggestions ()
+  "A calendar tap names no target: the focused one, which only the document
+shows, receives it.  The runway suggestion is computed when its button
+is tapped, from the captured deadline, never baked into the tree."
+  (let ((grove-document--planning
+         '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
+           :scheduled "" :deadline "<2026-09-08 Tue>" :focus "deadline"
+           :today "2026-09-01" :month "2026-09" :marks nil))
+        published)
+    (cl-letf (((symbol-function 'grove-org-planning-marks)
+               (lambda (_month) nil))
+              ((symbol-function 'jetpacs-app-defer-refresh)
+               (lambda (&rest _) (push 'refresh published)))
+              ((symbol-function 'jetpacs-app-defer-patch)
+               (lambda (ops &rest _) (push (cons 'patch ops) published))))
+      (let ((authored (grove-test--json (grove-document-planning-screen nil))))
+        (should (string-search "\"args\":{\"kind\":\"date\"}" authored))
+        (should (string-search "grove.planning.suggest" authored))
+        (should-not (string-search "Schedule this for" authored))
+        (should (string-search "Schedule this for 2026-09-05"
+                               (grove-test--materialized-planning-json))))
+      ;; A day tap with no field lands on the focused deadline.
+      (should
+       (eq (grove-document--on-planning-pick
+            '(:kind "date" :value "2026-09-10")
+            '(:fields (:grove-scheduled "" :grove-deadline "<2026-09-08 Tue>")))
+           'accepted))
+      (should (equal (plist-get grove-document--planning :deadline) "<2026-09-10>"))
+      (should (equal (plist-get grove-document--planning :scheduled) ""))
+      ;; Still a runway: a patch, whose suggestion follows the deadline.
+      (should (eq (car (car published)) 'patch))
+      (let ((planning (plist-get (car (cdr (car published))) :value)))
+        (should (equal (plist-get (plist-get planning :feedback) :text)
+                       "Schedule this for 2026-09-07, three days before the deadline."))
+        (should (equal (plist-get planning :selected) "2026-09-10"))
+        (should (equal (plist-get (plist-get planning :deadline) :target_label)
+                       "Deadline · 2026-09-10")))
+      ;; The suggestion applies the captured deadline, not the draft's.
+      (should
+       (eq (grove-document--on-planning-suggest
+            nil
+            '(:fields (:grove-scheduled "" :grove-deadline "<2026-09-20 Sun>")))
+           'accepted))
+      (should (equal (plist-get grove-document--planning :scheduled) "2026-09-17"))
+      (should (equal (plist-get grove-document--planning :deadline)
+                     "<2026-09-20 Sun>"))
+      (should (equal (plist-get grove-document--planning :focus) "scheduled"))
+      ;; Now a pair: the feedback card changed shape, so the stack went out.
+      (should (eq (car published) 'refresh))
+      (setq grove-document--planning
+            (plist-put grove-document--planning :deadline ""))
+      (should (eq (grove-document--on-planning-suggest nil nil) 'rejected)))))
+
+(ert-deftest grove-root-carries-the-planning-data-document ()
+  "The app root's data builder is the planning projection (SPEC 13.8)."
+  (let ((grove-document--planning nil))
+    (should-not (grove-document-surface-data)))
+  (let ((grove-document--planning
+         '(:notebook-id "n" :heading-id "h" :revision "r"
+           :scheduled "" :deadline "" :focus "scheduled"
+           :today "2026-09-01" :month "2026-09" :marks nil)))
+    (should (equal (plist-get (plist-get (grove-document-surface-data) :planning)
+                              :month)
+                   "2026-09"))
+    (should (equal (grove-document-surface-data) (grove-document-surface-data)))))
 
 (ert-deftest grove-planning-presets-and-colliding-styles-are-deterministic ()
   "Quick dates use calendar arithmetic and a same-day deadline wins color."

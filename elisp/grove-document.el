@@ -18,6 +18,7 @@
 (require 'ebp-org)
 (require 'jetpacs-apps)
 (require 'jetpacs-chrome)
+(require 'jetpacs-data)
 (require 'jetpacs-editor-org)
 (require 'jetpacs-org-render)
 (require 'jetpacs-org-toolbar)
@@ -639,11 +640,51 @@ selects the `scheduled' or `deadline' editor."
         (repeater (ebp-org-ts-repeater stamp)))
     (string-join (delq nil (list date time repeater)) " ")))
 
+(defun grove-document--planning-feedback-kind (scheduled deadline focus)
+  "The feedback the pair SCHEDULED/DEADLINE gets while editing FOCUS.
+One of `lead-time' (both dates), `runway' (a deadline alone), `prompt'
+\(a scheduled date alone while the deadline has focus), or nil."
+  (let ((scheduled-date (grove-document--planning-date scheduled))
+        (deadline-date (grove-document--planning-date deadline)))
+    (cond
+     ((and scheduled-date deadline-date) 'lead-time)
+     ((and deadline-date (null scheduled-date)) 'runway)
+     ((and (equal focus "deadline") scheduled-date) 'prompt))))
+
+(defun grove-document--planning-shape ()
+  "The node shape of the planning screen for the current draft.
+Every value a calendar tap can change is bound to the surface data
+document (SPEC 13.8); the feedback card is the one node whose SHAPE
+follows the draft, so only a change of its kind needs a new snapshot."
+  (and grove-document--planning
+       (grove-document--planning-feedback-kind
+        (plist-get grove-document--planning :scheduled)
+        (plist-get grove-document--planning :deadline)
+        (plist-get grove-document--planning :focus))))
+
+(defun grove-document--planning-publish (params shape)
+  "Show the changed draft on PARAMS' surface.
+SHAPE is `grove-document--planning-shape' from before the handler's
+change.  Unchanged, the whole /planning object is patched into the
+surface data document and the Companion re-materializes the screen it
+holds; changed, the stack is rebuilt and re-pushed.  Both are deferred
+past the dispatch (D2)."
+  (if (equal shape (grove-document--planning-shape))
+      (jetpacs-app-defer-patch
+       (list (jetpacs-data-set "/planning" (grove-document-planning-data)))
+       params)
+    (jetpacs-app-defer-refresh params)))
+
 (defun grove-document--on-planning-pick (args params)
-  "Merge picker ARGS with the pair draft captured in PARAMS."
-  (let* ((field (plist-get args :field))
+  "Merge picker ARGS with the pair draft captured in PARAMS.
+ARGS' `field' may be omitted: the calendar and the quick picks serve
+whichever target has focus, which the surface data document shows and
+their arguments therefore never carry."
+  (let* ((field (or (plist-get args :field)
+                    (plist-get grove-document--planning :focus)))
          (kind (plist-get args :kind))
-         (value (plist-get args :value)))
+         (value (plist-get args :value))
+         (shape (grove-document--planning-shape)))
     (cond
      ((null grove-document--planning) 'stale)
      ((not (and (member field '("scheduled" "deadline"))
@@ -657,9 +698,9 @@ selects the `scheduled' or `deadline' editor."
       (pcase-let* ((`(,scheduled . ,deadline)
                     (grove-document--planning-merge-captured params))
                    (old (if (equal field "scheduled") scheduled deadline))
-             (new (if (equal kind "date")
-                      (grove-document--stamp-replace-date old value)
-                    (grove-document--stamp-replace-time old value))))
+                   (new (if (equal kind "date")
+                            (grove-document--stamp-replace-date old value)
+                          (grove-document--stamp-replace-time old value))))
         (setq grove-document--planning
               (plist-put grove-document--planning :scheduled
                          (if (equal field "scheduled") new scheduled)))
@@ -675,12 +716,34 @@ selects the `scheduled' or `deadline' editor."
               (setq grove-document--planning
                     (plist-put grove-document--planning :month month))
               (grove-document--planning-refresh-marks))))
-        (jetpacs-app-defer-refresh params)
+        (grove-document--planning-publish params shape)
         'accepted)))))
+
+(defun grove-document--on-planning-suggest (_args params)
+  "Schedule the draft three days before its deadline, as the feedback offers.
+The suggestion is computed here from the deadline captured in PARAMS,
+never carried by the button: the feedback card's values are bound to
+the surface data document, so its button must stay true to them."
+  (cond
+   ((null grove-document--planning) 'stale)
+   ((jetpacs-event-stale-p params) 'stale)
+   (t
+    (let ((deadline-date
+           (grove-document--planning-date
+            (grove-document--planning-field
+             params :grove-deadline
+             (plist-get grove-document--planning :deadline)))))
+      (if (null deadline-date)
+          'rejected
+        (grove-document--on-planning-pick
+         (list :field "scheduled" :kind "date"
+               :value (grove-org-date-shift deadline-date -3))
+         params))))))
 
 (defun grove-document--on-planning-focus (args params)
   "Select ARGS' planning field while preserving captured edits in PARAMS."
-  (let ((field (plist-get args :field)))
+  (let ((field (plist-get args :field))
+        (shape (grove-document--planning-shape)))
     (cond
      ((null grove-document--planning) 'stale)
      ((not (member field grove-document--planning-focuses)) 'rejected)
@@ -700,12 +763,13 @@ selects the `scheduled' or `deadline' editor."
                 (plist-put grove-document--planning :month
                            (substring date 0 7)))
           (grove-document--planning-refresh-marks))
-        (jetpacs-app-defer-refresh params)
+        (grove-document--planning-publish params shape)
         'accepted)))))
 
 (defun grove-document--on-planning-month (args params)
   "Browse to the ISO month injected into ARGS, preserving fields in PARAMS."
-  (let ((month (plist-get args :value)))
+  (let ((month (plist-get args :value))
+        (shape (grove-document--planning-shape)))
     (cond
      ((null grove-document--planning) 'stale)
      ((not (grove-org-month-valid-p month)) 'rejected)
@@ -715,12 +779,13 @@ selects the `scheduled' or `deadline' editor."
       (setq grove-document--planning
             (plist-put grove-document--planning :month month))
       (grove-document--planning-refresh-marks)
-      (jetpacs-app-defer-refresh params)
+      (grove-document--planning-publish params shape)
       'accepted))))
 
 (defun grove-document--on-planning-clear (args params)
   "Clear ARGS' field while retaining the other value from PARAMS."
-  (let ((field (plist-get args :field)))
+  (let ((field (plist-get args :field))
+        (shape (grove-document--planning-shape)))
     (cond
      ((null grove-document--planning) 'stale)
      ((not (member field '("scheduled" "deadline" "both"))) 'rejected)
@@ -739,7 +804,7 @@ selects the `scheduled' or `deadline' editor."
         (when (member field grove-document--planning-focuses)
           (setq grove-document--planning
                 (plist-put grove-document--planning :focus field)))
-        (jetpacs-app-defer-refresh params)
+        (grove-document--planning-publish params shape)
         'accepted)))))
 
 (defun grove-document--on-planning-save (args params)
@@ -780,51 +845,58 @@ selects the `scheduled' or `deadline' editor."
                                (plist-get params :surface))
          'rejected)))))
 
-(defun grove-document--planning-editor (field label value)
-  "Return planning editor FIELD with LABEL and current VALUE."
-  (let* ((date (grove-document--planning-date value))
-         (raw-time (ebp-org-ts-time value))
-         (time (and (grove-document--planning-time-valid-p raw-time)
-                    raw-time)))
-    (jetpacs-card
-     (jetpacs-column
-      (jetpacs-text label :style "title")
-      (jetpacs-text-input
-       (concat "grove-" field) :value value
-       :label (concat label " timestamp or shorthand")
-       :hint "fri 10:00 ++1w" :single-line t :max-length 160)
-      (jetpacs-flow-row
-       (jetpacs-date-button
-        (or date "Choose date")
-        (jetpacs-action "grove.planning.pick"
-                        :args (list :field field :kind "date")
-                        :capture-fields grove-document--planning-fields)
-        :value date)
-       (jetpacs-time-button
-        (or time "Add time")
-        (jetpacs-action "grove.planning.pick"
-                        :args (list :field field :kind "time")
-                        :capture-fields grove-document--planning-fields)
-        :value time :display-mode "switchable")
-       (jetpacs-button
-        "Clear"
-        (jetpacs-action "grove.planning.clear"
-                        :args (list :field field)
-                        :capture-fields grove-document--planning-fields)
-        :variant "text"))
-      :spacing 8)
-     :variant "outlined")))
+(defun grove-document--planning-ref (&rest segments)
+  "A `jetpacs-ref' into Grove's planning document at /planning/SEGMENTS."
+  (jetpacs-ref (concat "/planning"
+                       (mapconcat (lambda (segment) (concat "/" segment))
+                                  segments ""))))
 
-(defun grove-document--planning-target-button (field label value focus)
-  "Build a planning target button for FIELD, LABEL, VALUE, and FOCUS."
-  (let ((date (grove-document--planning-date value)))
-    (jetpacs-button
-     (concat label (if date (concat " · " date) ""))
-     (jetpacs-action
-      "grove.planning.focus" :args (list :field field)
-      :capture-fields grove-document--planning-fields)
-     :icon (if (equal field "deadline") "event_busy" "schedule")
-     :variant (if (equal field focus) "filled" "outlined"))))
+(defun grove-document--planning-editor (field label)
+  "Return planning editor FIELD with LABEL.
+Its values — the timestamp, the date and time behind the pickers and
+their labels — are bound to /planning/FIELD in the surface data
+document, which `grove-document-planning-data' builds."
+  (jetpacs-card
+   (jetpacs-column
+    (jetpacs-text label :style "title")
+    (jetpacs-text-input
+     (concat "grove-" field)
+     :value (grove-document--planning-ref field "value")
+     :label (concat label " timestamp or shorthand")
+     :hint "fri 10:00 ++1w" :single-line t :max-length 160)
+    (jetpacs-flow-row
+     (jetpacs-date-button
+      (grove-document--planning-ref field "date_label")
+      (jetpacs-action "grove.planning.pick"
+                      :args (list :field field :kind "date")
+                      :capture-fields grove-document--planning-fields)
+      :value (grove-document--planning-ref field "date"))
+     (jetpacs-time-button
+      (grove-document--planning-ref field "time_label")
+      (jetpacs-action "grove.planning.pick"
+                      :args (list :field field :kind "time")
+                      :capture-fields grove-document--planning-fields)
+      :value (grove-document--planning-ref field "time")
+      :display-mode "switchable")
+     (jetpacs-button
+      "Clear"
+      (jetpacs-action "grove.planning.clear"
+                      :args (list :field field)
+                      :capture-fields grove-document--planning-fields)
+      :variant "text"))
+    :spacing 8)
+   :variant "outlined"))
+
+(defun grove-document--planning-target-button (field)
+  "Build the planning target button for FIELD.
+Its label and its focus variant are bound to /planning/FIELD."
+  (jetpacs-button
+   (grove-document--planning-ref field "target_label")
+   (jetpacs-action
+    "grove.planning.focus" :args (list :field field)
+    :capture-fields grove-document--planning-fields)
+   :icon (if (equal field "deadline") "event_busy" "schedule")
+   :variant (grove-document--planning-ref field "target_variant")))
 
 (defun grove-document--planning-preset-dates (today)
   "Return Grove quick-pick label/date pairs relative to ISO TODAY."
@@ -841,8 +913,8 @@ selects the `scheduled' or `deadline' editor."
             (cons "Next week"
                   (grove-org-date-shift today monday-delta))))))
 
-(defun grove-document--planning-preset-row (focus today)
-  "Build quick date picks for FOCUS relative to TODAY."
+(defun grove-document--planning-preset-row (today)
+  "Build quick date picks relative to TODAY for the focused target."
   (apply
    #'jetpacs-flow-row
    (append
@@ -852,7 +924,7 @@ selects the `scheduled' or `deadline' editor."
         (car preset)
         (jetpacs-action
          "grove.planning.pick"
-         :args (list :field focus :kind "date" :value (cdr preset))
+         :args (list :kind "date" :value (cdr preset))
          :capture-fields grove-document--planning-fields)
         :variant "tonal" :size "small"))
      (grove-document--planning-preset-dates today))
@@ -901,158 +973,227 @@ fallback so an older member profile still distinguishes the two targets."
        dots)
       (sort marks (lambda (left right) (string< (car left) (car right)))))))
 
-(defun grove-document--planning-feedback (scheduled deadline focus)
-  "Build feedback for SCHEDULED and DEADLINE while editing FOCUS."
-  (let ((scheduled-date (grove-document--planning-date scheduled))
-        (deadline-date (grove-document--planning-date deadline)))
-    (cond
-     ((and scheduled-date deadline-date)
-      (let ((days (grove-org--date-delta deadline-date scheduled-date)))
-        (jetpacs-card
-         (jetpacs-row
-          (jetpacs-icon (if (< days 0) "warning" "date_range")
-                        :color (if (< days 0) "error" "primary"))
-          (jetpacs-with-attrs
-           (jetpacs-text
-            (cond
-             ((< days 0)
-              (format "Deadline is %d day%s before the scheduled date."
-                      (- days) (if (= days -1) "" "s")))
-             ((= days 0) "Scheduled and due on the same day.")
-             (t (format "%d day%s between scheduled and deadline."
-                        days (if (= days 1) "" "s"))))
-            :style "caption" :color (and (< days 0) "error"))
-           :weight 1)
-          :spacing 8 :align "center")
-         :variant "outlined")))
-     ((and deadline-date (null scheduled-date))
-      (let ((suggestion (grove-org-date-shift deadline-date -3)))
-        (jetpacs-card
-         (jetpacs-column
-          (jetpacs-text "Give yourself a runway" :style "label")
-          (jetpacs-text
-           (format "Schedule this for %s, three days before the deadline."
-                   suggestion)
-           :style "caption")
-          (jetpacs-button
-           "Use suggested date"
-           (jetpacs-action
-            "grove.planning.pick"
-            :args (list :field "scheduled" :kind "date"
-                        :value suggestion)
-            :capture-fields grove-document--planning-fields)
-           :icon "schedule" :variant "tonal" :size "small")
-          :spacing 6)
-         :variant "outlined")))
-     ((and (equal focus "deadline") scheduled-date)
-      (jetpacs-text "Choose a deadline to see the available lead time."
-                    :style "caption")))))
-
-(defun grove-document--planning-calendar
-    (scheduled deadline focus month today marks)
-  "Build Grove's calendar from SCHEDULED, DEADLINE, FOCUS, MONTH, TODAY, and MARKS."
-  (let* ((scheduled-date (grove-document--planning-date scheduled))
-         (deadline-date (grove-document--planning-date deadline))
-         (styled
-          (jetpacs-node-member-advertised-p
-           "month_grid" "day_styles" :app))
-         (chronological
-          (and scheduled-date deadline-date
-               (not (string> scheduled-date deadline-date))))
-         (selected
-          (unless chronological
-            (if (equal focus "deadline")
-                (or deadline-date scheduled-date)
-              (or scheduled-date deadline-date)))))
-    (jetpacs-card
-     (jetpacs-column
-      (jetpacs-flow-row
-       (grove-document--planning-target-button
-        "scheduled" "Scheduled" scheduled focus)
-       (grove-document--planning-target-button
-        "deadline" "Deadline" deadline focus)
+(defun grove-document--planning-feedback (kind)
+  "Build the feedback node of KIND (`grove-document--planning-feedback-kind').
+Its words and colors are bound to /planning/feedback; the runway's
+suggestion is the handler's to compute when its button is tapped."
+  (pcase kind
+    ('lead-time
+     (jetpacs-card
+      (jetpacs-row
+       (jetpacs-icon (grove-document--planning-ref "feedback" "icon")
+                     :color (grove-document--planning-ref
+                             "feedback" "icon_color"))
+       (jetpacs-with-attrs
+        (jetpacs-text
+         (grove-document--planning-ref "feedback" "text")
+         :style "caption"
+         :color (grove-document--planning-ref "feedback" "text_color"))
+        :weight 1)
+       :spacing 8 :align "center")
+      :variant "outlined"))
+    ('runway
+     (jetpacs-card
+      (jetpacs-column
+       (jetpacs-text "Give yourself a runway" :style "label")
+       (jetpacs-text (grove-document--planning-ref "feedback" "text")
+                     :style "caption")
        (jetpacs-button
-        "Clear both"
+        "Use suggested date"
         (jetpacs-action
-         "grove.planning.clear" :args '(:field "both")
+         "grove.planning.suggest"
          :capture-fields grove-document--planning-fields)
-        :variant "text" :size "small")
-       :spacing 6 :run-spacing 6)
-      (jetpacs-month-grid
-       month
-       :marks (grove-document--planning-calendar-marks
-               marks scheduled-date deadline-date styled)
-       :day-styles (and styled
-                        (grove-document--planning-day-styles
-                         scheduled-date deadline-date))
-       :selected selected
-       :range-start (and chronological scheduled-date)
-       :range-end (and chronological deadline-date)
-       :on-day-tap
-       (jetpacs-action
-        "grove.planning.pick" :args (list :field focus :kind "date")
-        :capture-fields grove-document--planning-fields)
-       :on-month-change
-       (jetpacs-action
-        "grove.planning.month"
-        :capture-fields grove-document--planning-fields)
-       :children
-       (list (jetpacs-text
-              "Use the date controls below if this renderer has no calendar."
-              :style "caption")))
-      (grove-document--planning-preset-row focus today)
-      (grove-document--planning-feedback scheduled deadline focus)
-      :spacing 10)
-     :variant "outlined")))
+        :icon "schedule" :variant "tonal" :size "small")
+       :spacing 6)
+      :variant "outlined"))
+    ('prompt
+     (jetpacs-text "Choose a deadline to see the available lead time."
+                   :style "caption"))))
+
+(defun grove-document--planning-styled-p ()
+  "Whether the live profile advertises month_grid day styles (SPEC 12)."
+  (jetpacs-node-member-advertised-p "month_grid" "day_styles" :app))
+
+(defun grove-document--planning-calendar (kind today styled)
+  "Build Grove's calendar with feedback KIND and quick picks from TODAY.
+STYLED binds day styles, which only an advertising profile may carry.
+The month, its marks and styles, the selection or range, and the target
+buttons' labels and variants are all bound to /planning, so a tap
+changes the document and never this tree."
+  (jetpacs-card
+   (jetpacs-column
+    (jetpacs-flow-row
+     (grove-document--planning-target-button "scheduled")
+     (grove-document--planning-target-button "deadline")
+     (jetpacs-button
+      "Clear both"
+      (jetpacs-action
+       "grove.planning.clear" :args '(:field "both")
+       :capture-fields grove-document--planning-fields)
+      :variant "text" :size "small")
+     :spacing 6 :run-spacing 6)
+    (jetpacs-month-grid
+     (grove-document--planning-ref "month")
+     :marks (grove-document--planning-ref "marks")
+     :day-styles (and styled (grove-document--planning-ref "day_styles"))
+     :selected (grove-document--planning-ref "selected")
+     :range-start (grove-document--planning-ref "range_start")
+     :range-end (grove-document--planning-ref "range_end")
+     :on-day-tap
+     (jetpacs-action
+      "grove.planning.pick" :args '(:kind "date")
+      :capture-fields grove-document--planning-fields)
+     :on-month-change
+     (jetpacs-action
+      "grove.planning.month"
+      :capture-fields grove-document--planning-fields)
+     :children
+     (list (jetpacs-text
+            "Use the date controls below if this renderer has no calendar."
+            :style "caption")))
+    (grove-document--planning-preset-row today)
+    (grove-document--planning-feedback kind)
+    :spacing 10)
+   :variant "outlined"))
+
+(defun grove-document--planning-field-data (field label focus)
+  "The /planning/FIELD object: LABEL's draft, its pickers, its FOCUS state."
+  (let* ((value (plist-get grove-document--planning
+                           (if (equal field "deadline") :deadline :scheduled)))
+         (date (grove-document--planning-date value))
+         (raw-time (ebp-org-ts-time value))
+         (time (and (grove-document--planning-time-valid-p raw-time)
+                    raw-time)))
+    (append
+     (list :value value
+           :date_label (or date "Choose date")
+           :time_label (or time "Add time")
+           :target_label (concat label (if date (concat " · " date) ""))
+           :target_variant (if (equal field focus) "filled" "outlined"))
+     (and date (list :date date))
+     (and time (list :time time)))))
+
+(defun grove-document--planning-feedback-data (kind scheduled-date deadline-date)
+  "The /planning/feedback object for KIND over SCHEDULED-DATE and DEADLINE-DATE."
+  (pcase kind
+    ('lead-time
+     (let ((days (grove-org--date-delta deadline-date scheduled-date)))
+       (append
+        (list :icon (if (< days 0) "warning" "date_range")
+              :icon_color (if (< days 0) "error" "primary")
+              :text
+              (cond
+               ((< days 0)
+                (format "Deadline is %d day%s before the scheduled date."
+                        (- days) (if (= days -1) "" "s")))
+               ((= days 0) "Scheduled and due on the same day.")
+               (t (format "%d day%s between scheduled and deadline."
+                          days (if (= days 1) "" "s")))))
+        (and (< days 0) (list :text_color "error")))))
+    ('runway
+     (list :text
+           (format "Schedule this for %s, three days before the deadline."
+                   (grove-org-date-shift deadline-date -3))))))
+
+(defun grove-document-planning-data ()
+  "The /planning object of Grove's surface data document (SPEC 13.8).
+A pure projection of `grove-document--planning' and the live member
+profile — the same inputs the planning screen's builders read — so a
+snapshot and a patch always agree.  Nil without an open draft."
+  (when grove-document--planning
+    (let* ((scheduled (plist-get grove-document--planning :scheduled))
+           (deadline (plist-get grove-document--planning :deadline))
+           (focus (or (plist-get grove-document--planning :focus)
+                      "scheduled"))
+           (today (plist-get grove-document--planning :today))
+           (month (or (plist-get grove-document--planning :month)
+                      (grove-document--planning-month-for
+                       scheduled deadline focus today)))
+           (scheduled-date (grove-document--planning-date scheduled))
+           (deadline-date (grove-document--planning-date deadline))
+           (styled (grove-document--planning-styled-p))
+           (chronological
+            (and scheduled-date deadline-date
+                 (not (string> scheduled-date deadline-date))))
+           (selected
+            (unless chronological
+              (if (equal focus "deadline")
+                  (or deadline-date scheduled-date)
+                (or scheduled-date deadline-date))))
+           (marks (jetpacs-month-marks
+                   (grove-document--planning-calendar-marks
+                    (plist-get grove-document--planning :marks)
+                    scheduled-date deadline-date styled)))
+           (styles (and styled
+                        (jetpacs-month-day-styles
+                         (grove-document--planning-day-styles
+                          scheduled-date deadline-date))))
+           (feedback (grove-document--planning-feedback-data
+                      (grove-document--planning-feedback-kind
+                       scheduled deadline focus)
+                      scheduled-date deadline-date)))
+      (append
+       (list :month month
+             :scheduled (grove-document--planning-field-data
+                         "scheduled" "Scheduled" focus)
+             :deadline (grove-document--planning-field-data
+                        "deadline" "Deadline" focus))
+       (and marks (list :marks marks))
+       (and styles (list :day_styles styles))
+       (and selected (list :selected selected))
+       (and chronological
+            (list :range_start scheduled-date :range_end deadline-date))
+       (and feedback (list :feedback feedback))))))
+
+(defun grove-document-surface-data ()
+  "Grove's app-surface data document (SPEC 13.8).
+The planning object while a draft is open; nil otherwise, which the
+shell sends as the empty document."
+  (when-let* ((planning (grove-document-planning-data)))
+    (list :planning planning)))
 
 (defun grove-document-planning-screen (back)
-  "Build Grove's shared scheduled/deadline planning canvas with BACK."
+  "Build Grove's shared scheduled/deadline planning canvas with BACK.
+The tree is shaped by the draft's feedback kind alone; every value it
+shows is bound to the surface data document
+\(`grove-document-surface-data'), so a picker tap patches the document
+and the Companion re-materializes this screen without a new snapshot."
   (if (null grove-document--planning)
       (jetpacs-chrome-screen
        "Planning"
        (jetpacs-empty-state :icon "event_busy" :title "Planning expired"
                             :caption "Reopen it from the document.")
        :back back)
-    (let* ((scheduled (plist-get grove-document--planning :scheduled))
-           (deadline (plist-get grove-document--planning :deadline))
-           (focus (or (plist-get grove-document--planning :focus)
-                      "scheduled"))
-           (today (plist-get grove-document--planning :today))
-           (month
-            (or (plist-get grove-document--planning :month)
-                (grove-document--planning-month-for
-                 scheduled deadline focus today))))
-      (jetpacs-chrome-screen
-       "Planning"
-       (jetpacs-lazy-column
-        (jetpacs-text
-         "Pick both dates on one calendar, then refine either timestamp. Emacs still accepts normal Org shorthand and repeaters."
-         :style "caption")
-        (grove-document--planning-calendar
-         scheduled deadline focus month today
-         (plist-get grove-document--planning :marks))
-        (grove-document--planning-editor
-         "scheduled" "Scheduled" scheduled)
-        (grove-document--planning-editor
-         "deadline" "Deadline" deadline)
-        (jetpacs-button
-         "Save planning"
-         (jetpacs-action
-          "grove.planning.save"
-          :args (list :notebook-id
-                      (plist-get grove-document--planning :notebook-id)
-                      :heading-id
-                      (plist-get grove-document--planning :heading-id)
-                      :revision
-                      (plist-get grove-document--planning :revision))
-          :capture-fields grove-document--planning-fields
-          :when-offline 'queue :ttl-s 86400
-          :dedupe (jetpacs-wire-id
-                   "grove-planning"
-                   (plist-get grove-document--planning :heading-id)))
-         :icon "done" :variant "filled")
-        :spacing 10 :content-padding 12)
-       :back back))))
+    (jetpacs-chrome-screen
+     "Planning"
+     (jetpacs-lazy-column
+      (jetpacs-text
+       "Pick both dates on one calendar, then refine either timestamp. Emacs still accepts normal Org shorthand and repeaters."
+       :style "caption")
+      (grove-document--planning-calendar
+       (grove-document--planning-shape)
+       (plist-get grove-document--planning :today)
+       (grove-document--planning-styled-p))
+      (grove-document--planning-editor "scheduled" "Scheduled")
+      (grove-document--planning-editor "deadline" "Deadline")
+      (jetpacs-button
+       "Save planning"
+       (jetpacs-action
+        "grove.planning.save"
+        :args (list :notebook-id
+                    (plist-get grove-document--planning :notebook-id)
+                    :heading-id
+                    (plist-get grove-document--planning :heading-id)
+                    :revision
+                    (plist-get grove-document--planning :revision))
+        :capture-fields grove-document--planning-fields
+        :when-offline 'queue :ttl-s 86400
+        :dedupe (jetpacs-wire-id
+                 "grove-planning"
+                 (plist-get grove-document--planning :heading-id)))
+       :icon "done" :variant "filled")
+      :spacing 10 :content-padding 12)
+     :back back)))
 
 (defun grove-document-presented-planning-screen (back)
   "Build the profile-selected planning canvas with BACK."
@@ -1062,8 +1203,8 @@ fallback so an older member profile still distinguishes the two targets."
 (defconst grove-document--verbs
   '("grove.document.open" "grove.document.mode" "grove.document.save"
     "grove.document.todo" "grove.document.planning"
-    "grove.planning.pick" "grove.planning.focus" "grove.planning.month"
-    "grove.planning.clear" "grove.planning.save")
+    "grove.planning.pick" "grove.planning.suggest" "grove.planning.focus"
+    "grove.planning.month" "grove.planning.clear" "grove.planning.save")
   "Action names owned by Grove's document module.")
 
 (defun grove-document-register ()
@@ -1081,10 +1222,13 @@ fallback so an older member profile still distinguishes the two targets."
                                          :doc "Open Grove's paired Org planning calendar")
                       (jetpacs-defaction "grove.planning.pick"
                                          #'grove-document--on-planning-pick
-                                         :args '((:name field :type "enum" :required t)
+                                         :args '((:name field :type "enum")
                                                  (:name kind :type "enum" :required t)
                                                  (:name value :type "text" :required t))
-                                         :doc "Apply a validated date or time to one planning target")
+                                         :doc "Apply a validated date or time to one planning target, the focused one by default")
+                      (jetpacs-defaction "grove.planning.suggest"
+                                         #'grove-document--on-planning-suggest
+                                         :doc "Schedule the draft three days before its captured deadline")
                       (jetpacs-defaction "grove.planning.focus"
                                          #'grove-document--on-planning-focus
                                          :args '((:name field :type "enum" :required t))
