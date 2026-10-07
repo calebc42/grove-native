@@ -19,6 +19,7 @@
 (require 'jetpacs-apps)
 (require 'jetpacs-chrome)
 (require 'jetpacs-data)
+(require 'jetpacs-dates)
 (require 'jetpacs-editor-org)
 (require 'jetpacs-org-render)
 (require 'jetpacs-org-toolbar)
@@ -585,7 +586,10 @@ SCHEDULED or DEADLINE wins according to FOCUS, followed by the other field."
           (let ((info (progn
                         (grove-document--set-current notebook-id heading-id)
                         (grove-document--current-info)))
-                (today (format-time-string "%Y-%m-%d")))
+                ;; SPEC 20.1.2 (#197): the device's civil day, not the
+                ;; desktop's — they disagree for hours when the phone is
+                ;; in another zone.
+                (today (jetpacs-dates-today (jetpacs-device-time-zone))))
             (let ((scheduled (or (plist-get info :scheduled) ""))
                   (deadline (or (plist-get info :deadline) "")))
             (setq grove-document--planning
@@ -1067,7 +1071,11 @@ changes the document and never this tree."
     (append
      (list :value value
            :date_label (or date "Choose date")
-           :time_label (or time "Add time")
+           ;; SPEC 20.1.2 (#197): the label follows the device's clock
+           ;; cycle; without advice it is the HH:MM it always was.
+           :time_label (or (and time (jetpacs-dates-format-clock
+                                      time (jetpacs-device-hour-cycle)))
+                           "Add time")
            :target_label (concat label (if date (concat " · " date) ""))
            :target_variant (if (equal field focus) "filled" "outlined"))
      (and date (list :date date))
