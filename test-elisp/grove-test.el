@@ -1165,8 +1165,9 @@ screen binds them, the materialized screen shows them."
 
 (ert-deftest grove-planning-actions-preserve-captured-pair-and-validate-dates ()
   "Calendar transitions preserve local edits and reject malformed injection.
-A change of values alone patches the surface data document; a change
-of the feedback card's shape re-pushes the stack."
+Every change patches the surface data document: since SPEC 13.8.6 the
+feedback cards are conditional nodes, so even a change of feedback kind
+is a patch, never a snapshot."
   (let ((grove-document--planning
          '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
            :scheduled "<2026-09-04 Fri 09:00 +1w>"
@@ -1181,7 +1182,8 @@ of the feedback card's shape re-pushes the stack."
                (lambda (&rest _) (push 'refresh published)))
               ((symbol-function 'jetpacs-app-defer-patch)
                (lambda (ops &rest _) (push (cons 'patch ops) published))))
-      ;; A lone scheduled date becomes a pair: the feedback card appears.
+      ;; A lone scheduled date becomes a pair: the lead-time card appears
+      ;; through the document alone (SPEC 13.8.6), so this too is a patch.
       (should
        (eq (grove-document--on-planning-pick
             '(:field "scheduled" :kind "date" :value "2026-10-07")
@@ -1194,7 +1196,10 @@ of the feedback card's shape re-pushes the stack."
                      "<2026-10-11 Sun>"))
       (should (equal (plist-get grove-document--planning :month) "2026-10"))
       (should (equal mark-months '("2026-10")))
-      (should (equal published '(refresh)))
+      (should (eq (car (car published)) 'patch))
+      (should (equal (plist-get (plist-get (car (cdr (car published))) :value)
+                                :feedback_kind)
+                     "lead-time"))
       ;; Moving focus changes values only: one patch of the whole object.
       (should
        (eq (grove-document--on-planning-focus
@@ -1224,7 +1229,7 @@ of the feedback card's shape re-pushes the stack."
                        "4 days between scheduled and deadline."))
         (should (equal (gethash "2026-10-02" (plist-get planning :marks))
                        '(:dots 1))))
-      ;; Shorthand drafts dissolve the pair: the card goes, so the stack does.
+      ;; Shorthand drafts dissolve the pair: the card goes — by patch.
       (should
        (eq (grove-document--on-planning-month
             '(:value "2026-11")
@@ -1235,7 +1240,9 @@ of the feedback card's shape re-pushes the stack."
                      "nov 2 09:00"))
       (should (equal (plist-get grove-document--planning :deadline) "nov 9"))
       (should (equal mark-months '("2026-11" "2026-10")))
-      (should (eq (car published) 'refresh))
+      (should (eq (car (car published)) 'patch))
+      (should-not (plist-member (plist-get (car (cdr (car published))) :value)
+                                :feedback_kind))
       (let ((before (copy-tree grove-document--planning))
             (shown (length published)))
         (should
@@ -1300,8 +1307,11 @@ is tapped, from the captured deadline, never baked into the tree."
       (should (equal (plist-get grove-document--planning :deadline)
                      "<2026-09-20 Sun>"))
       (should (equal (plist-get grove-document--planning :focus) "scheduled"))
-      ;; Now a pair: the feedback card changed shape, so the stack went out.
-      (should (eq (car published) 'refresh))
+      ;; Now a pair: the lead-time card shows, and that too is a patch.
+      (should (eq (car (car published)) 'patch))
+      (should (equal (plist-get (plist-get (car (cdr (car published))) :value)
+                                :feedback_kind)
+                     "lead-time"))
       (setq grove-document--planning
             (plist-put grove-document--planning :deadline ""))
       (should (eq (grove-document--on-planning-suggest nil nil) 'rejected)))))

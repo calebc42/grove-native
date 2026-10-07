@@ -658,13 +658,12 @@ One of `lead-time' (both dates), `runway' (a deadline alone), `prompt'
 (defun grove-document--planning-shape ()
   "The node shape of the planning screen for the current draft.
 Every value a calendar tap can change is bound to the surface data
-document (SPEC 13.8); the feedback card is the one node whose SHAPE
-follows the draft, so only a change of its kind needs a new snapshot."
-  (and grove-document--planning
-       (grove-document--planning-feedback-kind
-        (plist-get grove-document--planning :scheduled)
-        (plist-get grove-document--planning :deadline)
-        (plist-get grove-document--planning :focus))))
+document (SPEC 13.8), and since SPEC 13.8.6 the feedback cards are
+conditional nodes reading /planning/feedback_kind, so the authored shape
+no longer follows the draft at all: non-nil while a draft is open, and a
+handler that compares it before and after its change always patches.
+Kept as the publish seam's shape witness."
+  (and grove-document--planning t))
 
 (defun grove-document--planning-publish (params shape)
   "Show the changed draft on PARAMS' surface.
@@ -977,6 +976,28 @@ fallback so an older member profile still distinguishes the two targets."
        dots)
       (sort marks (lambda (left right) (string< (car left) (car right)))))))
 
+(defun grove-document--planning-feedback-when (kind)
+  "The SPEC 13.8.6 predicate vector that shows the feedback node of KIND."
+  (vector (jetpacs-when "/planning/feedback_kind" "eq" (symbol-name kind))))
+
+(defun grove-document--planning-feedback-cards ()
+  "Build the three feedback nodes, each conditional on /planning/feedback_kind.
+SPEC 13.8.6: every kind `grove-document--planning-feedback-kind' can
+name is authored once, keyed, and shown only while the document says so;
+a change of kind is a `surface.data' patch, never a snapshot.  Their words
+and colors are bound to /planning/feedback; the runway's suggestion is the
+handler's to compute when its button is tapped."
+  (list
+   (jetpacs-with-attrs (grove-document--planning-feedback 'lead-time)
+                       :key "feedback-lead-time"
+                       :visible_when (grove-document--planning-feedback-when 'lead-time))
+   (jetpacs-with-attrs (grove-document--planning-feedback 'runway)
+                       :key "feedback-runway"
+                       :visible_when (grove-document--planning-feedback-when 'runway))
+   (jetpacs-with-attrs (grove-document--planning-feedback 'prompt)
+                       :key "feedback-prompt"
+                       :visible_when (grove-document--planning-feedback-when 'prompt))))
+
 (defun grove-document--planning-feedback (kind)
   "Build the feedback node of KIND (`grove-document--planning-feedback-kind').
 Its words and colors are bound to /planning/feedback; the runway's
@@ -1018,46 +1039,53 @@ suggestion is the handler's to compute when its button is tapped."
   "Whether the live profile advertises month_grid day styles (SPEC 12)."
   (jetpacs-node-member-advertised-p "month_grid" "day_styles" :app))
 
-(defun grove-document--planning-calendar (kind today styled)
-  "Build Grove's calendar with feedback KIND and quick picks from TODAY.
+(defun grove-document--planning-calendar (today styled)
+  "Build Grove's calendar with its feedback cards and quick picks from TODAY.
 STYLED binds day styles, which only an advertising profile may carry.
 The month, its marks and styles, the selection or range, and the target
-buttons' labels and variants are all bound to /planning, so a tap
-changes the document and never this tree."
+buttons' labels and variants are all bound to /planning, and the feedback
+cards are conditional on /planning/feedback_kind (SPEC 13.8.6), so a tap
+changes the document and never this tree.  Every child is keyed, as a
+children array holding a conditional node must be."
   (jetpacs-card
-   (jetpacs-column
-    (jetpacs-flow-row
-     (grove-document--planning-target-button "scheduled")
-     (grove-document--planning-target-button "deadline")
-     (jetpacs-button
-      "Clear both"
+   (apply
+    #'jetpacs-column
+    (jetpacs-with-attrs
+     (jetpacs-flow-row
+      (grove-document--planning-target-button "scheduled")
+      (grove-document--planning-target-button "deadline")
+      (jetpacs-button
+       "Clear both"
+       (jetpacs-action
+        "grove.planning.clear" :args '(:field "both")
+        :capture-fields grove-document--planning-fields)
+       :variant "text" :size "small")
+      :spacing 6 :run-spacing 6)
+     :key "targets")
+    (jetpacs-with-attrs
+     (jetpacs-month-grid
+      (grove-document--planning-ref "month")
+      :marks (grove-document--planning-ref "marks")
+      :day-styles (and styled (grove-document--planning-ref "day_styles"))
+      :selected (grove-document--planning-ref "selected")
+      :range-start (grove-document--planning-ref "range_start")
+      :range-end (grove-document--planning-ref "range_end")
+      :on-day-tap
       (jetpacs-action
-       "grove.planning.clear" :args '(:field "both")
+       "grove.planning.pick" :args '(:kind "date")
        :capture-fields grove-document--planning-fields)
-      :variant "text" :size "small")
-     :spacing 6 :run-spacing 6)
-    (jetpacs-month-grid
-     (grove-document--planning-ref "month")
-     :marks (grove-document--planning-ref "marks")
-     :day-styles (and styled (grove-document--planning-ref "day_styles"))
-     :selected (grove-document--planning-ref "selected")
-     :range-start (grove-document--planning-ref "range_start")
-     :range-end (grove-document--planning-ref "range_end")
-     :on-day-tap
-     (jetpacs-action
-      "grove.planning.pick" :args '(:kind "date")
-      :capture-fields grove-document--planning-fields)
-     :on-month-change
-     (jetpacs-action
-      "grove.planning.month"
-      :capture-fields grove-document--planning-fields)
-     :children
-     (list (jetpacs-text
-            "Use the date controls below if this renderer has no calendar."
-            :style "caption")))
-    (grove-document--planning-preset-row today)
-    (grove-document--planning-feedback kind)
-    :spacing 10)
+      :on-month-change
+      (jetpacs-action
+       "grove.planning.month"
+       :capture-fields grove-document--planning-fields)
+      :children
+      (list (jetpacs-text
+             "Use the date controls below if this renderer has no calendar."
+             :style "caption")))
+     :key "month")
+    (jetpacs-with-attrs (grove-document--planning-preset-row today) :key "presets")
+    (append (grove-document--planning-feedback-cards)
+            (list :spacing 10)))
    :variant "outlined"))
 
 (defun grove-document--planning-field-data (field label focus)
@@ -1136,10 +1164,10 @@ snapshot and a patch always agree.  Nil without an open draft."
                         (jetpacs-month-day-styles
                          (grove-document--planning-day-styles
                           scheduled-date deadline-date))))
+           (kind (grove-document--planning-feedback-kind
+                  scheduled deadline focus))
            (feedback (grove-document--planning-feedback-data
-                      (grove-document--planning-feedback-kind
-                       scheduled deadline focus)
-                      scheduled-date deadline-date)))
+                      kind scheduled-date deadline-date)))
       (append
        (list :month month
              :scheduled (grove-document--planning-field-data
@@ -1151,6 +1179,8 @@ snapshot and a patch always agree.  Nil without an open draft."
        (and selected (list :selected selected))
        (and chronological
             (list :range_start scheduled-date :range_end deadline-date))
+       ;; SPEC 13.8.6: the conditional feedback cards read the kind by name.
+       (and kind (list :feedback_kind (symbol-name kind)))
        (and feedback (list :feedback feedback))))))
 
 (defun grove-document-surface-data ()
@@ -1162,10 +1192,11 @@ shell sends as the empty document."
 
 (defun grove-document-planning-screen (back)
   "Build Grove's shared scheduled/deadline planning canvas with BACK.
-The tree is shaped by the draft's feedback kind alone; every value it
-shows is bound to the surface data document
-\(`grove-document-surface-data'), so a picker tap patches the document
-and the Companion re-materializes this screen without a new snapshot."
+The tree never follows the draft: every value it shows is bound to the
+surface data document \(`grove-document-surface-data') and the feedback
+cards are conditional on it (SPEC 13.8.6), so a picker tap patches the
+document and the Companion re-materializes this screen without a new
+snapshot."
   (if (null grove-document--planning)
       (jetpacs-chrome-screen
        "Planning"
@@ -1179,7 +1210,6 @@ and the Companion re-materializes this screen without a new snapshot."
        "Pick both dates on one calendar, then refine either timestamp. Emacs still accepts normal Org shorthand and repeaters."
        :style "caption")
       (grove-document--planning-calendar
-       (grove-document--planning-shape)
        (plist-get grove-document--planning :today)
        (grove-document--planning-styled-p))
       (grove-document--planning-editor "scheduled" "Scheduled")
