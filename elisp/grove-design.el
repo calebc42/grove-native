@@ -52,32 +52,35 @@
 
 (defconst grove-design-typography
   '(("display" . (:family "plex-sans" :size 30 :weight 600
-                  :line-height 38 :letter-spacing 0))
+                  :line-height 39 :letter-spacing 0))
     ("screen-title" . (:family "plex-sans" :size 19 :weight 600
-                       :line-height 26 :letter-spacing 0))
+                       :line-height 24.7 :letter-spacing 0))
     ("section-title" . (:family "plex-sans" :size 17 :weight 600
-                        :line-height 24 :letter-spacing 0))
+                        :line-height 22.1 :letter-spacing 0))
     ("item-title" . (:family "plex-sans" :size 14.5 :weight 600
-                     :line-height 20 :letter-spacing 0))
+                     :line-height 18.85 :letter-spacing 0))
     ("reading-body" . (:family "plex-serif" :size 16 :weight 400
-                       :line-height 26 :letter-spacing 0))
+                       :line-height 26.4 :letter-spacing 0))
     ("body" . (:family "plex-sans" :size 15 :weight 400
-               :line-height 22 :letter-spacing 0))
+               :line-height 19.5 :letter-spacing 0))
     ("supporting" . (:family "plex-sans" :size 13.5 :weight 400
-                     :line-height 19 :letter-spacing 0))
+                     :line-height 17.55 :letter-spacing 0))
     ("label-large" . (:family "plex-sans" :size 15 :weight 600
-                      :line-height 20 :letter-spacing 0))
+                      :line-height 19.5 :letter-spacing 0))
     ("label" . (:family "plex-sans" :size 12.5 :weight 600
-                :line-height 17 :letter-spacing 0))
+                :line-height 16.25 :letter-spacing 0))
     ("caption" . (:family "plex-sans" :size 12.5 :weight 400
-                  :line-height 17 :letter-spacing 0))
+                  :line-height 16.25 :letter-spacing 0))
     ("code" . (:family "plex-mono" :size 13.5 :weight 400
-               :line-height 25 :letter-spacing 0))
+               :line-height 24.975 :letter-spacing 0))
     ("metadata" . (:family "plex-mono" :size 11.5 :weight 400
-                   :line-height 16 :letter-spacing 0)))
+                   :line-height 14.95 :letter-spacing 0)))
   "Grove's IBM Plex type scale, taken from the Android app's effective sizes.
 Sans carries chrome and lists, Serif carries read-mode prose, and Mono
-carries the editor, timestamps, tags, and file names.")
+carries the editor, timestamps, tags, and file names.  Every Plex face is
+1.3 em tall (ascent 1025, descent 275, no gap), and the app sets no line
+height except read-mode prose (1.65 em) and the editor (1.85 em), so every
+other role carries exactly 1.3 times its size.")
 
 (defconst grove-design--semantic-color-names
   '("primary" "on-primary" "secondary" "on-secondary" "error" "on-error"
@@ -177,6 +180,8 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
      (mapcar (lambda (name)
                (cons (concat "color." name) (cdr (assoc name colors))))
              names)
+     (mapcar (lambda (pair) (cons (concat "color." (car pair)) (cdr pair)))
+             (grove-design--edge-colors colors))
      `(("space.compact" . ,(jetpacs-design-dimension 6))
        ("space.control-x" . ,(jetpacs-design-dimension 14))
        ("space.control-y" . ,(jetpacs-design-dimension 10))
@@ -433,6 +438,264 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
      . ,(jetpacs-design-style
          `(("content_color" . ,(grove-design--token "color.error")))))))
 
+;;;; Parity faces: the Android app's exact metrics
+
+(defconst grove-design-monogram-palette
+  '(("green" "success" "success-soft")
+    ("blue" "info" "info-soft")
+    ("amber" "warning" "warning-soft")
+    ("red" "error" "error-soft")
+    ("accent" "primary" "accent-soft")
+    ("neutral" "muted" "surface-raised"))
+  "Monogram palette keys with their foreground and soft-fill color names.
+The order is the app's `MONOGRAM_PALETTE_KEYS', which its name hash indexes.")
+
+(defconst grove-design-text-roles
+  '(("top-title" "plex-sans" 19 600 "on-background" 0 1.3)
+    ("row-title" "plex-sans" 15 600 "on-background")
+    ("folder-title" "plex-sans" 14.5 600 "on-background")
+    ("row-meta" "plex-sans" 12.5 400 "muted")
+    ("folder-meta" "plex-sans" 12 400 "muted")
+    ("row-path" "plex-mono" 11 400 "faint")
+    ("monogram" "plex-mono" 16.8 600 nil)
+    ("folder-glyph" "plex-mono" 15 400 nil)
+    ("chevron" "plex-mono" 13 400 "faint")
+    ("chevron-flat" "plex-mono" 15 400 "faint")
+    ("dock-plus" "plex-sans" 22 400 "on-primary")
+    ("dock-label" "plex-sans" 15 600 "on-primary")
+    ("drawer-app" "plex-sans" 18 600 "on-surface")
+    ("drawer-path" "plex-mono" 12 400 "muted")
+    ("drawer-item" "plex-sans" 14.5 400 "on-surface")
+    ("drawer-item-active" "plex-sans" 14.5 600 "primary")
+    ("drawer-section" "plex-sans" 11 600 "faint" 1)
+    ("empty-glyph" "plex-sans" 28 400 "faint")
+    ("empty-title" "plex-sans" 15 600 "on-background")
+    ("empty-caption" "plex-sans" 13 400 "muted")
+    ("outline-file" "plex-mono" 17 600 "on-background")
+    ("outline-count" "plex-sans" 11.5 400 "muted")
+    ("outline-title" "plex-sans" 14.5 600 "on-background")
+    ("outline-title-sub" "plex-sans" 14.5 500 "on-background")
+    ("outline-title-done" "plex-sans" 14.5 600 "faint")
+    ("outline-title-sub-done" "plex-sans" 14.5 500 "faint")
+    ("outline-stars" "plex-mono" 13 600 nil)
+    ("outline-chip" "plex-mono" 11 700 nil)
+    ("outline-meta" "plex-mono" 11 400 nil)
+    ("outline-preview" "plex-sans" 12.5 400 "faint")
+    ("kv" "plex-mono" 12 400 nil 0 1.5)
+    ("kv-caret" "plex-mono" 10 400 "faint")
+    ("kv-label" "plex-mono" 12 400 "faint")
+    ("kv-count" "plex-mono" 11 400 "faint")
+    ("intro" "plex-sans" 13.5 400 "on-background" 0 1.4815)
+    ("fab-plus" "plex-sans" 26 400 "on-primary"))
+  "The Android app's literal text roles, one face per distinct `Text' call.
+Each entry is name, family, size, weight, color, tracking, and line height
+in em, and becomes style `grove.t.NAME'.  The line height
+defaults to 1.65 em: the app's `Text' calls that name no style inherit
+Material's `bodyLarge', which Grove sets to 1.65 em, while those that name a
+style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
+
+(defun grove-design--text-role-styles ()
+  "Return one exact text style per entry of `grove-design-text-roles'."
+  (mapcar
+   (pcase-lambda (`(,name ,family ,size ,weight ,color ,tracking ,line))
+     (cons (concat "grove.t." name)
+           (jetpacs-design-style
+            (append
+             `(("font_family" . ,(jetpacs-design-font-family family))
+               ("font_size" . ,(jetpacs-design-dimension size))
+               ("font_weight" . ,(jetpacs-design-font-weight weight))
+               ("line_height"
+                . ,(jetpacs-design-dimension (* size (or line 1.65))))
+               ("letter_spacing" . ,(jetpacs-design-dimension (or tracking 0))))
+             (and color
+                  `(("content_color"
+                     . ,(grove-design--token (concat "color." color)))))
+             (grove-design--untrimmed-leading size (or line 1.65))))))
+   grove-design-text-roles))
+
+(defun grove-design--untrimmed-leading (size line)
+  "Return the box that restores the leading a trimmed renderer drops.
+The receiver trims the extra line height above a text's first line and below
+its last; the app's Compose does not.  For a SIZE sp face at LINE em, half
+the extra over Plex's natural 1.3 em goes above and half below, as the app's
+centered line-height alignment places it, so N lines measure N line boxes.
+A minimum height of one whole line box makes a single line round to device
+pixels exactly as the app's does."
+  (let ((extra (- (* size line) (* size 1.3))))
+    (when (> extra 0)
+      (let ((half (jetpacs-design-dimension (/ (round (* 500 extra)) 1000.0))))
+        `(("min_height" . ,(jetpacs-design-dimension
+                            (/ (round (* 1000 size line)) 1000.0)))
+          ("padding_top" . ,half)
+          ("padding_bottom" . ,half))))))
+
+(defun grove-design--monogram-styles ()
+  "Return the 42 dp monogram tile and one tint per palette key.
+`grove.tile.KEY' fills the tile with the soft color and inks its letter;
+`grove.tile-edge.KEY' adds a folder tile's 40 percent hairline."
+  (append
+   `(("grove.tile"
+      . ,(jetpacs-design-style
+          `(("width" . ,(jetpacs-design-dimension 42))
+            ("height" . ,(jetpacs-design-dimension 42))
+            ("corner_radius" . ,(jetpacs-design-dimension 12))))))
+   (cl-loop
+    for (key fg soft) in grove-design-monogram-palette
+    collect (cons (concat "grove.tile." key)
+                  (jetpacs-design-style
+                   `(("background_color"
+                      . ,(grove-design--token (concat "color." soft)))
+                     ("content_color"
+                      . ,(grove-design--token (concat "color." fg))))))
+    collect (cons (concat "grove.tile-edge." key)
+                  (jetpacs-design-style
+                   `(("border_width" . ,(jetpacs-design-dimension 1))
+                     ("border_color"
+                      . ,(grove-design--token (concat "color.edge-" key)))))))))
+
+(defconst grove-design-ink-names
+  '("success" "info" "warning" "error" "violet" "primary" "faint" "muted"
+    "syn-tag" "syn-keyword" "on-background")
+  "Colors a parity text may take on top of its role, as `grove.fg.NAME'.")
+
+(defconst grove-design-chip-names '("success" "info" "warning" "error" "violet")
+  "Soft chip fills, as `grove.chip.NAME': the soft color behind the color.")
+
+(defun grove-design--ink-styles ()
+  "Return one content-color style per `grove-design-ink-names' entry."
+  (mapcar (lambda (name)
+            (cons (concat "grove.fg." name)
+                  (jetpacs-design-style
+                   `(("content_color"
+                      . ,(grove-design--token (concat "color." name)))))))
+          grove-design-ink-names))
+
+(defun grove-design--chip-styles ()
+  "Return the app's 5 dp soft chips, one per `grove-design-chip-names'."
+  (mapcar (lambda (name)
+            (cons (concat "grove.chip." name)
+                  (jetpacs-design-style
+                   `(("background_color"
+                      . ,(grove-design--token
+                          (concat "color." (if (equal name "violet")
+                                               "accent-soft"
+                                             (concat name "-soft")))))
+                     ("content_color"
+                      . ,(grove-design--token (concat "color." name)))
+                     ("corner_radius" . ,(jetpacs-design-dimension 5))
+                     ("padding_horizontal" . ,(jetpacs-design-dimension 5))
+                     ("padding_vertical" . ,(jetpacs-design-dimension 1))))))
+          grove-design-chip-names))
+
+(defun grove-design--parity-styles ()
+  "Return the faces that reproduce the Android app's chrome metrics."
+  (append
+   (grove-design--text-role-styles)
+   (grove-design--monogram-styles)
+   (grove-design--ink-styles)
+   (grove-design--chip-styles)
+   `(("grove.rail"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.outline"))
+            ("corner_radius" . ,(jetpacs-design-dimension 2)))))
+     ;; The reachability dock: a 60 dp raised capsule with a hairline and
+     ;; 6 dp inset, and the 72 dp accent pill that overhangs it.
+     ("grove.dock"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.surface-raised"))
+            ("border_color" . ,(grove-design--token "color.line"))
+            ("border_width" . ,(jetpacs-design-dimension 1))
+            ("corner_radius" . ,(jetpacs-design-dimension 30))
+            ("height" . ,(jetpacs-design-dimension 60))
+            ("padding" . ,(jetpacs-design-dimension 6)))))
+     ("grove.dock-pill"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.primary"))
+            ("corner_radius" . ,(jetpacs-design-dimension 36))
+            ("height" . ,(jetpacs-design-dimension 72))
+            ("padding_horizontal" . ,(jetpacs-design-dimension 22)))))
+     ;; Material's standard 360 dp modal sheet on the surface color, as the
+     ;; app's `ModalDrawerSheet' draws it.
+     ("grove.drawer"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.surface"))
+            ("width" . ,(jetpacs-design-dimension 360)))))
+     ("grove.drawer-active"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.accent-soft")))))
+     ;; Outline: the faded PREFACE band, 44 dp glyph buttons, the 54 dp
+     ;; add-note FAB, and the flat heading row on the screen color.
+     ("grove.preface"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.surface-raised"))
+            ("corner_radius" . ,(jetpacs-design-dimension 10)))))
+     ("grove.glyph-button"
+      . ,(jetpacs-design-style
+          `(("width" . ,(jetpacs-design-dimension 44))
+            ("height" . ,(jetpacs-design-dimension 44))
+            ("corner_radius" . ,(jetpacs-design-dimension 10))
+            ("content_color" . ,(grove-design--token "color.on-background")))))
+     ("grove.fab"
+      . ,(jetpacs-design-style
+          `(("width" . ,(jetpacs-design-dimension 54))
+            ("height" . ,(jetpacs-design-dimension 54))
+            ("corner_radius" . ,(jetpacs-design-dimension 18))
+            ("background_color" . ,(grove-design--token "color.primary")))))
+     ("grove.flat-row"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.background"))
+            ("content_color" . ,(grove-design--token "color.on-background"))
+            ("corner_radius" . ,(jetpacs-design-dimension 10))
+            ;; The receiver's base card keeps a hairline even at zero width;
+            ;; drawing it in the screen color makes the row flat, as the app's.
+            ("border_width" . ,(jetpacs-design-dimension 0))
+            ("border_color" . ,(grove-design--token "color.background"))
+            ("padding" . ,(jetpacs-design-dimension 0)))))
+     ("grove.hairline"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(grove-design--token "color.line"))
+            ("height" . ,(jetpacs-design-dimension 1))))))))
+
+(defun grove-design--edge-colors (colors)
+  "Return the folder-tile hairline colors derived from COLORS.
+A literal `#RRGGBB' foreground gains the app's 40 percent alpha; a theme
+role passes through, since a role has no alpha to scale."
+  (cl-loop
+   for (key fg _soft) in grove-design-monogram-palette
+   collect
+   (let ((value (cdr (assoc fg colors))))
+     (cons (concat "edge-" key)
+           (if (and (equal (plist-get value :kind) "color")
+                    (= (length (plist-get value :value)) 7))
+               (jetpacs-design-color
+                (concat "#66" (substring (plist-get value :value) 1)))
+             value)))))
+
+(defun grove-design-color (name)
+  "Return the active profile's color NAME as a canvas color.
+A literal token gives its `#RRGGBB' or `#AARRGGBB' value; a theme-role token
+gives the role, so canvas drawing follows the profile like styled nodes do.
+Falls back to the `outline' role when NAME is not a color token."
+  (let* ((profile (jetpacs-design-active-profile grove-design-profile-id))
+         (value (cdr (assoc (concat "color." name)
+                            (plist-get profile :tokens)))))
+    (pcase (plist-get value :kind)
+      ("color" (plist-get value :value))
+      ("theme-role" (plist-get value :value))
+      (_ "outline"))))
+
+(defun grove-design-parity-available-p (&optional profile)
+  "Return non-nil when PROFILE declares Grove's exact parity faces.
+PROFILE defaults to the active profile.  A portable profile copied before
+these faces existed lacks them; Grove then keeps its Material builders so it
+never sends a style reference the receiver cannot resolve."
+  (let ((profile (or profile
+                     (jetpacs-design-active-profile grove-design-profile-id))))
+    (and profile
+         (cl-every (lambda (name)
+                     (assoc name (plist-get profile :styles)))
+                   '("grove.t.row-title" "grove.tile" "grove.dock")))))
+
 (defconst grove-design-motions
   `(("press" . ,(jetpacs-design-motion 90 "ease-out"))
     ("hover-focus" . ,(jetpacs-design-motion 120 "ease-out"))
@@ -482,7 +745,7 @@ Soft fills carry their real alpha (`#AARRGGBB') rather than opaque tints.")
     ("chrome.tab-indicator" . ("grove.indicator"))
     ("chrome.rail-label" . ("typography.label"))
     ("chrome.rail-indicator" . ("grove.band"))
-    ("chrome.drawer" . ("grove.surface"))
+    ("chrome.drawer" . ("grove.drawer"))
     ("chrome.snackbar" . ("grove.popup"))
     ("badge.container" . ("grove.chip"))
     ("badge.label" . ("typography.metadata"))
@@ -561,7 +824,7 @@ With CHROME non-nil the profile also re-declares the EBP theme roles."
    id label
    :tokens (grove-design--tokens colors)
    :typography grove-design-typography
-   :styles (grove-design--styles)
+   :styles (append (grove-design--styles) (grove-design--parity-styles))
    :motions grove-design-motions
    :component-styles grove-design-component-styles
    :theme-roles (and chrome (grove-design--chrome-roles))))

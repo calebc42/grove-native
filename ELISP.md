@@ -8,8 +8,13 @@ information architecture and visual workflows.
 
 ## Implemented slices
 
-- A Notebooks-first `app:grove` shell with Notebooks, Agenda, Search, and
-  Settings as primary adaptive destinations.
+- A Notebooks-first `app:grove` shell registered as a standalone Jetpacs app,
+  like the Android app: no host bottom bar or global actions. Grove draws its
+  own drawer (Search, Notebooks, saved searches, Agenda, Settings, and a way
+  back to the other Jetpacs apps) and its floating Search/Capture/New dock.
+- Pixel parity with the Android app, screen by screen, under the design
+  runtime (see "Pixel parity" below). Notebooks (tree, drawer, dock) and the
+  Outline (folding, PREFACE band, chips, long-press structure menu) are done.
 - A bounded nested notebook tree over the configured Org agenda scope, with a
   flat-list option, favorites, folder drill-down, and safe create, rename,
   move, and recoverable-trash operations.
@@ -168,6 +173,35 @@ The original Kotlin app remains the visual and workflow acceptance reference.
 The next useful planning slice is structured time-range and repeater controls;
 their timestamp semantics should continue to come from Emacs or reusable
 Jetpacs platform seams.
+
+## Pixel parity
+
+The Android app is the acceptance reference, compared by screenshot on the
+same device. When the receiver advertises `jetpacs.design` and the active
+profile declares Grove's parity faces (`grove-design-parity-available-p`),
+Grove builds the app's own screens; otherwise the Material builders remain the
+authority, so a portable profile copied before the faces existed never sends
+a style the receiver cannot resolve.
+
+Parity rests on a few measured facts:
+
+- Every IBM Plex face is 1.3 em tall. The app's `Text` calls that name no
+  style inherit Material's `bodyLarge`, which Grove sets to 1.65 em; those
+  that name a style keep 1.3 em. Each `grove.t.*` text role records which.
+- The receiver trims the extra leading above a first line and below a last;
+  the app does not. Text roles restore it with a line-box `min_height` and
+  half the extra as `padding_top` (the app centers it), and rows add the
+  0.4 dp its whole-pixel line boxes accumulate.
+- Monogram colors are Java's `String.hashCode` of the vault-relative path
+  modulo the six palette keys; note counts are top-level headings plus one
+  for a non-blank intro; ages follow Android's `DateUtils`.
+
+Known receiver-side gaps: the drawer hamburger and the back arrow are the
+Companion's Material icons rather than the app's `☰` and `←` glyphs (System
+Back needs the `arrow_back` button); the app's thin custom icons and
+accent-tinted shadows have no node equivalent; design text has no
+strike-through for DONE titles; and the navigation-bar scrim stays clear.
+Multi-line outline rows still drift about a pixel each from line rounding.
 
 ## Jetpacs outline
 

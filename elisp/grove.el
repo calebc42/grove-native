@@ -162,9 +162,9 @@
                   :label grove-title
                   :icon grove-icon
                   :surfaces '("grove")
-                  :chrome 'primary
-                  :dock-core nil
-                  :drawer-core '("eval")
+                  ;; Standalone, like the Android app: no host bottom bar
+                  ;; or global actions; Grove draws its own drawer and dock.
+                  :chrome 'standalone
                   :fab #'grove-navigation-capture-fab
                   :home-route "notebooks"
                   :destinations grove-navigation-destinations

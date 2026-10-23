@@ -190,6 +190,158 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
             (string-lessp (downcase (plist-get left :path-label))
                           (downcase (plist-get right :path-label)))))))
 
+;;;; Facts the Android app shows on each Notebooks row
+
+(defcustom grove-library-expanded-folder-ids nil
+  "Opaque folder ids whose subtree Notebooks shows expanded in place."
+  :type '(repeat string)
+  :group 'grove)
+
+(defconst grove-library-drill-threshold 20
+  "Folders holding more files than this open as their own screen.
+The Android app's `FOLDER_DRILL_THRESHOLD': a smaller folder expands in place.")
+
+(defconst grove-library--palette-keys
+  '("green" "blue" "amber" "red" "accent" "neutral")
+  "Monogram palette keys in the order the app's name hash indexes them.")
+
+(defconst grove-library--note-scan-bytes 2000000
+  "Bytes of a notebook read when counting its notes.")
+
+(defun grove-library--java-hash (string)
+  "Return Java's `String.hashCode' of STRING as a non-negative integer.
+The app keys a notebook's default monogram color on this hash of its
+vault-relative path, so the same file gets the same color in both."
+  (let ((bytes (encode-coding-string string 'utf-16be))
+        (hash 0))
+    (dotimes (index (/ (length bytes) 2))
+      (setq hash (logand (+ (* 31 hash)
+                            (* 256 (aref bytes (* 2 index)))
+                            (aref bytes (1+ (* 2 index))))
+                         #xFFFFFFFF)))
+    (when (>= hash #x80000000) (setq hash (- hash #x100000000)))
+    (if (= hash (- #x80000000)) 0 (abs hash))))
+
+(defun grove-library-palette-key (relative)
+  "Return the default monogram palette key for vault-relative path RELATIVE."
+  (nth (% (grove-library--java-hash relative) 6) grove-library--palette-keys))
+
+(defun grove-library--monogram (name)
+  "Return the uppercase first character of NAME, or a bullet when blank."
+  (let ((trimmed (string-trim (or name ""))))
+    (if (string-empty-p trimmed) "•"
+      (upcase (substring trimmed 0 1)))))
+
+(defun grove-library--note-count (file)
+  "Return FILE's note count as the app computes it.
+Top-level headings are notes; text before the first heading, other than
+blank lines, keywords, and drawers, counts as one more."
+  (with-temp-buffer
+    (insert-file-contents file nil 0 grove-library--note-scan-bytes)
+    (goto-char (point-min))
+    (let ((count 0) (intro nil) (in-drawer nil) (before-heading t))
+      (while (not (eobp))
+        (let ((line (buffer-substring-no-properties
+                     (line-beginning-position) (line-end-position))))
+          (cond
+           ((string-match-p "\\`\\* " line)
+            (setq count (1+ count) before-heading nil))
+           ((not before-heading))
+           (in-drawer
+            (when (string-match-p "\\`[ \t]*:END:[ \t]*\\'" line)
+              (setq in-drawer nil)))
+           ((string-match-p "\\`[ \t]*:[A-Za-z_-]+:[ \t]*\\'" line)
+            (setq in-drawer t))
+           ((or (string-match-p "\\`[ \t]*\\'" line)
+                (string-match-p "\\`[ \t]*#\\+" line)))
+           (t (setq intro t))))
+        (forward-line 1))
+      (+ count (if intro 1 0)))))
+
+(defun grove-library--plural (count singular)
+  "Return COUNT followed by SINGULAR, pluralized with an s."
+  (format "%d %s%s" count singular (if (= count 1) "" "s")))
+
+(defun grove-library-relative-time (time now)
+  "Return TIME relative to NOW the way Android's `DateUtils' prints it.
+Under a minute is zero minutes; then minutes, hours, and calendar days, with
+yesterday by name; a week or more is the abbreviated date."
+  (let* ((seconds (max 0 (float-time (time-subtract now time))))
+         (days (- (time-to-days now) (time-to-days time))))
+    (cond
+     ((< seconds 3600)
+      (format "%s ago" (grove-library--plural (floor seconds 60) "minute")))
+     ((< seconds 86400)
+      (format "%s ago" (grove-library--plural (floor seconds 3600) "hour")))
+     ((< seconds 604800)
+      (if (<= days 1) "Yesterday"
+        (format "%s ago" (grove-library--plural days "day"))))
+     (t (format-time-string "%b %-d, %Y" time)))))
+
+(defun grove-library--relative-path (path root)
+  "Return PATH relative to ROOT, or its plain name outside ROOT."
+  (if (and root (file-in-directory-p path root))
+      (directory-file-name (file-relative-name path root))
+    (file-name-nondirectory (directory-file-name path))))
+
+(defun grove-library--file-facts (file root now)
+  "Return FILE's row facts relative to ROOT, with its age measured at NOW."
+  (let* ((relative (grove-library--relative-path file root))
+         (modified (file-attribute-modification-time (file-attributes file)))
+         (notes (condition-case nil (grove-library--note-count file)
+                  (error nil))))
+    (list :relative relative
+          :palette (grove-library-palette-key relative)
+          :monogram (grove-library--monogram (file-name-nondirectory file))
+          :note-count notes
+          :modified-label (grove-library-relative-time modified now)
+          :directory-label
+          (let ((dir (file-name-directory relative)))
+            (and dir (not (string-empty-p dir)) dir)))))
+
+(defun grove-library--count-folders (folders notebooks)
+  "Return FOLDERS with file, subfolder, depth, and palette facts.
+Counts use NOTEBOOKS, so they reflect the bounded snapshot."
+  (mapcar
+   (lambda (folder)
+     (let* ((id (plist-get folder :id))
+            (path (gethash id grove-library--folder-paths))
+            (relative (plist-get folder :path-label)))
+       (append
+        folder
+        (list
+         :file-count
+         (cl-count-if
+          (lambda (notebook)
+            (let ((file (gethash (plist-get notebook :id)
+                                 grove-library--notebook-paths)))
+              (and path file (file-in-directory-p file path))))
+          notebooks)
+         :folder-count
+         (cl-count id folders
+                   :key (lambda (other) (plist-get other :parent-id))
+                   :test #'equal)
+         :depth (1+ (cl-count ?/ relative))
+         :palette (grove-library-palette-key relative)
+         :expanded (and (member id grove-library-expanded-folder-ids) t)))))
+   folders))
+
+(defun grove-library-set-folder-expanded (folder-id expanded)
+  "Record FOLDER-ID as EXPANDED or collapsed in the Notebooks tree."
+  (setq grove-library-expanded-folder-ids
+        (if expanded
+            (cl-adjoin folder-id grove-library-expanded-folder-ids
+                       :test #'equal)
+          (remove folder-id grove-library-expanded-folder-ids)))
+  (setq grove-library--snapshot
+        (plist-put (copy-tree grove-library--snapshot) :folders
+                   (mapcar (lambda (folder)
+                             (if (equal (plist-get folder :id) folder-id)
+                                 (plist-put (copy-sequence folder)
+                                            :expanded (and expanded t))
+                               folder))
+                           (plist-get grove-library--snapshot :folders)))))
+
 (defun grove-library--notebook-record (id)
   "Return the safe notebook record for ID, or nil."
   (cl-find id (plist-get grove-library--snapshot :notebooks)
@@ -209,6 +361,7 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                                       (file-truename file)))
                                   (jetpacs-org-mode-agenda-scope))))
                           #'string-lessp))
+             (now (current-time))
              (total (length scope))
              (files (seq-take scope grove-library-notebook-limit))
              (root (grove-library--org-root))
@@ -232,12 +385,14 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                   (unless (and root (file-equal-p directory root))
                     (grove-library--folder-id directory))))
             (puthash id file grove-library--notebook-paths)
-            (push (list :id id :folder-id folder-id
-                        :label (file-name-base file)
-                        :file-label (file-name-nondirectory file)
-                        :folder-label
-                        (grove-library--display-folder directory root)
-                        :favorite (and (member id grove-library-favorite-ids) t))
+            (push (append
+                   (list :id id :folder-id folder-id
+                         :label (file-name-base file)
+                         :file-label (file-name-nondirectory file)
+                         :folder-label
+                         (grove-library--display-folder directory root)
+                         :favorite (and (member id grove-library-favorite-ids) t))
+                   (grove-library--file-facts file root now))
                   records)))
         (setq records
               (sort records
@@ -253,7 +408,9 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                                  (downcase (plist-get right :label))))))))
         (setq grove-library--snapshot
               (list :notebooks records
-                    :folders (grove-library--folder-records directories root)
+                    :folders (grove-library--count-folders
+                              (grove-library--folder-records directories root)
+                              records)
                     :total-count total
                     :truncated (> total (length files))
                     :error nil))
@@ -317,6 +474,73 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
     (dolist (key dead-documents) (remhash key grove-library--documents))
     (remhash notebook-id grove-library--outlines)))
 
+(defconst grove-library--timestamp-re
+  (concat "[<[]\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)"
+          "\\(?: +[^ 0-9>]+\\)?"
+          "\\(?: +\\([0-9]\\{1,2\\}:[0-9]\\{2\\}\\)"
+          "\\(?:-\\([0-9]\\{1,2\\}:[0-9]\\{2\\}\\)\\)?\\)?"
+          "\\(?: +\\([.+]?\\+[0-9]+[hdwmy]\\)\\)?"
+          "\\(?: +\\(--?[0-9]+[hdwmy]\\)\\)?")
+  "An Org timestamp: date, optional time range, repeater, and warning.")
+
+(defun grove-library-human-timestamp (timestamp now)
+  "Return Org TIMESTAMP as the app's chip prints it, relative to NOW's year.
+`Sep 5 09:00-11:00 +1w': abbreviated month and day, the year only when it
+is not NOW's, then any time range, repeater, and warning.  Nil for nil."
+  (when (and (stringp timestamp)
+             (string-match grove-library--timestamp-re timestamp))
+    (let* ((year (string-to-number (match-string 1 timestamp)))
+           (month (string-to-number (match-string 2 timestamp)))
+           (day (string-to-number (match-string 3 timestamp)))
+           (start (match-string 4 timestamp))
+           (end (match-string 5 timestamp))
+           (repeat (match-string 6 timestamp))
+           (warn (match-string 7 timestamp))
+           (date (encode-time (list 0 0 12 day month year))))
+      (concat (format-time-string "%b %-d" date)
+              (unless (= year (decoded-time-year (decode-time now)))
+                (format ", %d" year))
+              (when start (concat " " start (when end (concat "-" end))))
+              (when repeat (concat " " repeat))
+              (when warn (concat " " warn))))))
+
+(defun grove-library--preview-lines (body)
+  "Return BODY's first three non-blank lines outside drawers, joined.
+The app previews a heading with these, two of them shown, so a third line
+makes the second end in an ellipsis."
+  (let (lines drawer)
+    (dolist (line (split-string (or body "") "\n"))
+      (let ((trimmed (string-trim line)))
+        (cond
+         (drawer (when (string-match-p "\\`:END:\\'" trimmed) (setq drawer nil)))
+         ((string-match-p "\\`:[A-Za-z_-]+:\\'" trimmed) (setq drawer t))
+         ((string-empty-p trimmed))
+         ((< (length lines) 3) (push trimmed lines)))))
+    (when lines
+      (truncate-string-to-width (string-join (nreverse lines) "\n") 240))))
+
+(defun grove-library--preface-keywords (preface)
+  "Return PREFACE's `#+KEY:' lines as (KEY . VALUE) pairs, in order."
+  (let (pairs)
+    (dolist (line (split-string (or preface "") "\n"))
+      (when (string-match "\\`[ \t]*\\(#\\+[A-Za-z0-9_-]+:\\)[ \t]*\\(.*\\)" line)
+        (push (cons (match-string 1 line) (string-trim (match-string 2 line)))
+              pairs)))
+    (nreverse pairs)))
+
+(defun grove-library--preface-intro (preface)
+  "Return PREFACE's prose: lines other than keywords and drawers, trimmed."
+  (let (lines drawer)
+    (dolist (line (split-string (or preface "") "\n"))
+      (let ((trimmed (string-trim line)))
+        (cond
+         (drawer (when (string-match-p "\\`:END:\\'" trimmed) (setq drawer nil)))
+         ((string-match-p "\\`:[A-Za-z_-]+:\\'" trimmed) (setq drawer t))
+         ((string-match-p "\\`#\\+" trimmed))
+         (t (push line lines)))))
+    (let ((text (string-trim (string-join (nreverse lines) "\n"))))
+      (unless (string-empty-p text) text))))
+
 (defun grove-library--scan-outline (notebook-id)
   "Scan NOTEBOOK-ID and return a safe nested-outline snapshot."
   (let ((file (or (grove-library-resolve-notebook notebook-id)
@@ -336,6 +560,7 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                     (point-min) (point-max) nil nil
                     ebp-org-outline-max-headings))
               (stack nil)
+              (now (current-time))
               records)
          (dolist (record raw)
            (goto-char (plist-get record :pos))
@@ -356,6 +581,17 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                            :priority (plist-get record :priority)
                            :tags (copy-sequence (plist-get record :tags))
                            :deadline (plist-get record :deadline)
+                           :deadline-label
+                           (grove-library-human-timestamp
+                            (plist-get record :deadline) now)
+                           :scheduled-label
+                           (grove-library-human-timestamp
+                            (ignore-errors
+                              (org-entry-get (plist-get record :pos)
+                                             "SCHEDULED"))
+                            now)
+                           :lines (grove-library--preview-lines
+                                   (plist-get record :body))
                            :done (plist-get record :done)
                            :revision revision
                            :preview
@@ -369,6 +605,8 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
                :label (plist-get (grove-library--notebook-record notebook-id)
                                  :label)
                :preface (truncate-string-to-width preface 8192 nil nil t)
+               :keywords (grove-library--preface-keywords preface)
+               :intro (grove-library--preface-intro preface)
                :records (nreverse records)
                :buffer name
                :truncated (= (length raw) ebp-org-outline-max-headings)))))))

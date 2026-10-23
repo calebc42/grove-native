@@ -196,7 +196,12 @@
              (second (grove-navigation-presented-notebooks-screen nil))
              (json (jetpacs-node->canonical-json first)))
         (should (equal (plist-get first :t) "jetpacs.design_scope"))
-        (should (string-search "\"t\":\"button\"" json))
+        ;; The parity screen: Grove's exact faces, its own dock and drawer.
+        (should (string-search "\"t\":\"jetpacs.styled\"" json))
+        (should (string-search "grove.t.row-title" json))
+        (should (string-search "grove.library.notebook.menu" json))
+        (should (string-search "\"fab_position\":\"center\"" json))
+        (should (string-search "\"drawer\"" json))
         (should (string-search "\"kind\":\"theme-role\"" json))
         (should-not (string-match-p "#[[:xdigit:]]\\{6,8\\}" json))
         (should (string-search "grove.notebook.open" json))
@@ -1544,12 +1549,12 @@ is tapped, from the captured deadline, never baked into the tree."
       (delete-directory root t))))
 
 (ert-deftest grove-primary-shell-and-settings-are-valid-and-whitelisted ()
-  "Grove exposes four primary destinations and only accepts safe settings."
+  "Grove is a standalone app with four destinations and safe settings."
   (should (equal (mapcar (lambda (row) (plist-get row :key))
                          grove-navigation-destinations)
                  '("notebooks" "agenda" "search" "settings")))
   (let ((entry (cdr (assoc grove-owner jetpacs-apps--registry))))
-    (should (eq (plist-get entry :chrome) 'primary))
+    (should (eq (plist-get entry :chrome) 'standalone))
     (should (equal (plist-get entry :home-route) "notebooks"))
     (should-not (plist-get entry :requires-extensions)))
   (should (jetpacs-check-profile
@@ -1614,3 +1619,146 @@ checks, run from the foundation's applet tooling."
 
 (provide 'grove-test)
 ;;; grove-test.el ends here
+
+(ert-deftest grove-library-row-facts-match-the-android-app ()
+  "Monogram colors, note counts, and ages are the app's own derivations."
+  ;; Java `String.hashCode' of the vault-relative path, modulo six.
+  (should (equal (mapcar #'grove-library-palette-key
+                         '("archive.org" "inbox.org" "journal.org"
+                           "reading-list.org" "tasks.org" "travel.org"
+                           "projects" "projects/blog.org" "projects/life.org"))
+                 '("amber" "green" "red" "neutral" "accent" "green"
+                   "green" "red" "blue")))
+  (let ((file (make-temp-file "grove-notes" nil ".org"
+                              (concat "#+TITLE: T\n\n"
+                                      ":PROPERTIES:\n:ID: x\n:END:\n"
+                                      "An intro line.\n* One\n** Child\n* Two\n"))))
+    (unwind-protect
+        (should (= (grove-library--note-count file) 3))
+      (delete-file file)))
+  (let ((now grove-test--now))
+    (should (equal (grove-library-relative-time (time-subtract now 30) now)
+                   "0 minutes ago"))
+    (should (equal (grove-library-relative-time (time-subtract now 60) now)
+                   "1 minute ago"))
+    (should (equal (grove-library-relative-time (time-subtract now 7200) now)
+                   "2 hours ago"))
+    (should (equal (grove-library-relative-time (time-subtract now 90000) now)
+                   "Yesterday"))
+    (should (equal (grove-library-relative-time
+                    (time-subtract now (* 3 86400)) now)
+                   "3 days ago"))
+    (should (equal (grove-library-relative-time
+                    (time-subtract now (* 20 86400)) now)
+                   "Aug 12, 2026"))))
+
+(ert-deftest grove-parity-faces-carry-the-apps-exact-metrics ()
+  "Every preset declares the parity faces with the app's line heights."
+  (dolist (profile (list (grove-design-profile) (grove-design-light-profile)
+                         (grove-design-dark-profile)))
+    (should (grove-design-parity-available-p profile)))
+  (let* ((styles (plist-get (grove-design-light-profile) :styles))
+         (title (cdr (assoc "grove.t.row-title" styles)))
+         (props (plist-get title :properties)))
+    ;; 15 sp at the app's inherited 1.65 em: half the trimmed leading
+    ;; restored above and below, and one line box as a minimum height.
+    (should (equal (plist-get (plist-get props :line_height) :value) "24.75"))
+    (should (equal (plist-get (plist-get props :padding_top) :value) "2.625"))
+    (should (equal (plist-get (plist-get props :min_height) :value) "24.75"))
+    (should (equal (plist-get (plist-get props :padding_bottom) :value)
+                   "2.625")))
+  ;; Folder-tile hairlines carry 40 percent alpha in the literal presets.
+  (let ((tokens (plist-get (grove-design-light-profile) :tokens)))
+    (should (equal (plist-get (cdr (assoc "color.edge-green" tokens)) :value)
+                   "#664F7A3A"))))
+
+(ert-deftest grove-notebook-tree-expands-in-place-and-stays-deterministic ()
+  "Folders expand under their row; the parity root is repeatable."
+  (let* ((folder "grove-folder-projects")
+         (grove-library-expanded-folder-ids nil)
+         (grove-library--snapshot
+          `(:notebooks
+            ((:id "root-note" :folder-id nil :label "inbox" :file-label "inbox.org"
+                  :folder-label "Notebooks" :favorite nil :palette "green"
+                  :monogram "I" :note-count 5 :modified-label "1 minute ago")
+             (:id "child-note" :folder-id ,folder :label "blog"
+                  :file-label "blog.org" :folder-label "projects" :favorite nil
+                  :palette "red" :monogram "B" :note-count 3
+                  :modified-label "2 days ago"))
+            :folders ((:id ,folder :parent-id nil :label "projects"
+                           :path-label "projects" :file-count 1 :folder-count 0
+                           :depth 1 :palette "green" :expanded nil))
+            :total-count 2 :truncated nil :error nil)))
+    (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+               (lambda (extension target)
+                 (and (equal extension "jetpacs.design") (eq target :app))))
+              ((symbol-function 'grove-library-resolve-folder)
+               (lambda (id) (and (equal id folder) "/tmp/projects/")))
+              ((symbol-function 'jetpacs-app-defer-refresh) #'ignore))
+      (let ((collapsed (jetpacs-node->canonical-json
+                        (grove-navigation-presented-notebooks-screen nil))))
+        (should (string-search "inbox.org" collapsed))
+        (should-not (string-search "blog.org" collapsed))
+        (should (string-search "5 notes " collapsed))
+        (should (string-search " 1 minute ago" collapsed))
+        (should (equal collapsed
+                       (jetpacs-node->canonical-json
+                        (grove-navigation-presented-notebooks-screen nil)))))
+      (should (eq (grove-navigation--on-folder-toggle
+                   (list :folder-id folder) nil)
+                  'accepted))
+      (let ((expanded (jetpacs-node->canonical-json
+                       (grove-navigation-presented-notebooks-screen nil))))
+        (should (string-search "blog.org" expanded))
+        (should (string-search "grove.rail" expanded)))
+      (should (eq (grove-navigation--on-folder-toggle
+                   (list :folder-id "grove-folder-gone") nil)
+                  'stale)))))
+
+(ert-deftest grove-parity-outline-folds-in-place-and-stays-deterministic ()
+  "The parity outline starts folded, unfolds by heading, and is repeatable."
+  (let* ((notebook "grove-notebook-travel")
+         (grove-navigation--notebook-id notebook)
+         (grove-navigation--outline-expanded (make-hash-table :test #'equal))
+         (grove-navigation--preface-open (make-hash-table :test #'equal))
+         (grove-library--outlines (make-hash-table :test #'equal))
+         (grove-library--snapshot
+          `(:notebooks ((:id ,notebook :folder-id nil :label "travel"
+                             :file-label "travel.org" :folder-label "Notebooks"))
+            :folders nil :total-count 1 :truncated nil :error nil)))
+    (puthash notebook
+             `(:notebook-id ,notebook :label "travel"
+               :keywords (("#+TITLE:" . "Travel"))
+               :intro "Trips, bookings, and packing lists."
+               :records
+               ((:id "h1" :parent-id nil :level 1 :title "Portugal trip"
+                     :tags ("travel") :lines "Two weeks in September.")
+                (:id "h2" :parent-id "h1" :level 2 :title "Book Lisbon apartment"
+                     :todo "TODO" :priority "A" :tags ("travel" "lodging")
+                     :deadline-label "Aug 30")))
+             grove-library--outlines)
+    (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
+               (lambda (extension target)
+                 (and (equal extension "jetpacs.design") (eq target :app))))
+              ((symbol-function 'jetpacs-app-defer-refresh) #'ignore))
+      (let ((folded (jetpacs-node->canonical-json
+                     (grove-navigation-presented-outline-screen
+                      (jetpacs-view-switch "notebooks")))))
+        (should (string-search "Portugal trip" folded))
+        (should-not (string-search "Book Lisbon apartment" folded))
+        (should (string-search "PREFACE" folded))
+        (should (string-search "\"icon\":\"arrow_back\"" folded))
+        (should (string-search "grove.outline.menu" folded))
+        (should (equal folded
+                       (jetpacs-node->canonical-json
+                        (grove-navigation-presented-outline-screen
+                         (jetpacs-view-switch "notebooks"))))))
+      (should (eq (grove-navigation--on-outline-toggle '(:heading-id "h1") nil)
+                  'accepted))
+      (let ((open (jetpacs-node->canonical-json
+                   (grove-navigation-presented-outline-screen
+                    (jetpacs-view-switch "notebooks")))))
+        (should (string-search "Book Lisbon apartment" open))
+        (should (string-search "[#A]" open))
+        (should (string-search "grove.chip.warning" open))
+        (should (string-search "Aug 30" open))))))

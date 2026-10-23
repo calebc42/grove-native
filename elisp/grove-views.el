@@ -26,11 +26,16 @@
 (require 'grove-core)
 (require 'grove-library)
 
-(defcustom grove-saved-views nil
+(defcustom grove-saved-views
+  '(("Scheduled Today" "match" "SCHEDULED=\"<today>\"")
+    ("All TODO" "match" "/!")
+    ("This Week" "match"
+     "SCHEDULED>=\"<today>\"+SCHEDULED<=\"<+7d>\""))
   "Phone-authored Grove search views.
 Each entry is (NAME MODE QUERY), where MODE is the string \"text\" or
 \"match\".  IDs are derived privately from the complete entry, so this
-configuration contains no Android identity or protocol state."
+configuration contains no Android identity or protocol state.  The default
+is the Android app's three built-in searches, written as Org matches."
   :type '(repeat
           (list :tag "Saved view"
                 (string :tag "Name")
