@@ -559,8 +559,13 @@ defaults to 1.65 em: the app's `Text' calls that name no style inherit
 Material's `bodyLarge', which Bloom sets to 1.65 em, while those that name a
 style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
 
+(defconst bloom-design-struck-roles
+  '("outline-title-done" "outline-title-sub-done")
+  "Text roles the app strikes through: a finished heading's title.")
+
 (defun bloom-design--text-role-styles ()
-  "Return one exact text style per entry of `bloom-design-text-roles'."
+  "Return one exact text style per entry of `bloom-design-text-roles'.
+Roles in `bloom-design-struck-roles' also strike through."
   (mapcar
    (pcase-lambda (`(,name ,family ,size ,weight ,color ,tracking ,line ,leading))
      (cons (concat "bloom.t." name)
@@ -575,6 +580,8 @@ style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
              (and color
                   `(("content_color"
                      . ,(bloom-design--token (concat "color." color)))))
+             (and (member name bloom-design-struck-roles)
+                  `(("strike_through" . ,(jetpacs-design-boolean t))))
              (unless (eq leading 'trimmed)
                (bloom-design--untrimmed-leading size (or line 1.65)))))))
    bloom-design-text-roles))
