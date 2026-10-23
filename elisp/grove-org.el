@@ -309,26 +309,24 @@ The returned plist is a copy and never belongs in a Jetpacs node tree."
     (grove-org-schedule-refresh)))
 
 (defun grove-org-register ()
-  "Install Grove's Org invalidation hooks and produce its first snapshot."
-  (remove-hook 'after-save-hook #'grove-org--after-save)
-  (remove-hook 'org-capture-after-finalize-hook
-               #'grove-org-schedule-refresh)
-  (remove-hook 'org-after-todo-state-change-hook
-               #'grove-org-schedule-refresh)
-  (add-hook 'after-save-hook #'grove-org--after-save)
-  (add-hook 'org-capture-after-finalize-hook
-            #'grove-org-schedule-refresh)
-  (add-hook 'org-after-todo-state-change-hook
-            #'grove-org-schedule-refresh)
+  "Install Grove's Org invalidation hooks and produce its first snapshot.
+The hooks are global Org hooks, ledgered under the app's owner so its
+teardown detaches them."
+  (with-jetpacs-owner grove-owner
+    (jetpacs-add-hook 'after-save-hook #'grove-org--after-save)
+    (jetpacs-add-hook 'org-capture-after-finalize-hook
+                      #'grove-org-schedule-refresh)
+    (jetpacs-add-hook 'org-after-todo-state-change-hook
+                      #'grove-org-schedule-refresh))
   (grove-org-refresh))
 
 (defun grove-org-unregister ()
   "Remove Grove's Org hooks, timer, and private snapshot state."
-  (remove-hook 'after-save-hook #'grove-org--after-save)
-  (remove-hook 'org-capture-after-finalize-hook
-               #'grove-org-schedule-refresh)
-  (remove-hook 'org-after-todo-state-change-hook
-               #'grove-org-schedule-refresh)
+  (jetpacs-remove-hook 'after-save-hook #'grove-org--after-save)
+  (jetpacs-remove-hook 'org-capture-after-finalize-hook
+                       #'grove-org-schedule-refresh)
+  (jetpacs-remove-hook 'org-after-todo-state-change-hook
+                       #'grove-org-schedule-refresh)
   (when (timerp grove-org--refresh-timer)
     (cancel-timer grove-org--refresh-timer))
   (setq grove-org--refresh-timer nil

@@ -545,7 +545,7 @@ Foundation renderer takes its whole appearance from them."
       (should (equal notified '("Completed" "app:grove"))))))
 
 (ert-deftest grove-registration-is-symmetric ()
-  "Register and unregister cover the app, actions, and both widget roots."
+  "Register and unregister cover the app, actions, hooks, and widget roots."
   (unwind-protect
       (progn
         (grove-register)
@@ -560,7 +560,16 @@ Foundation renderer takes its whole appearance from them."
           (should (gethash name jetpacs-action-handlers)))
         (should (assoc grove-capture-widget-surface jetpacs-shell--roots))
         (should (assoc grove-agenda-widget-surface jetpacs-shell--roots))
+        (should (jetpacs--owned-names "hook" grove-owner))
         (grove-unregister)
+        (should-not (jetpacs--owned-names "hook" grove-owner))
+        (dolist (entry '((after-save-hook . grove-org--after-save)
+                         (grove-org-after-refresh-hook . grove--schedule-pushes)
+                         (grove-org-after-refresh-hook
+                          . grove-reminders-schedule-sync)
+                         (jetpacs-shell-after-push-hook
+                          . grove-reminders-schedule-sync)))
+          (should-not (memq (cdr entry) (default-value (car entry)))))
         (should-not (assoc grove-owner jetpacs-apps--registry))
         (should-not (assoc grove-capture-widget-surface jetpacs-shell--roots))
         (should-not (assoc grove-agenda-widget-surface jetpacs-shell--roots))

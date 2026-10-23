@@ -120,15 +120,15 @@
 (defun grove-register ()
   "Register Grove's app, actions, Org adapter, and widget roots idempotently."
   (grove-design-register)
-  (remove-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
-  (add-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
-  (remove-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
-  (add-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
-  (remove-hook 'jetpacs-design-profile-changed-hook #'grove--schedule-pushes)
-  (add-hook 'jetpacs-design-profile-changed-hook #'grove--schedule-pushes)
   ;; Keep the literal owner visible to Jetpacs' static applet inventory; the
   ;; constant above remains the runtime identity used everywhere else.
   (with-jetpacs-owner "grove"
+    ;; Ledgered, so the app's teardown detaches them.
+    (jetpacs-add-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
+    (jetpacs-add-hook 'grove-library-after-refresh-hook
+                      #'grove--schedule-pushes)
+    (jetpacs-add-hook 'jetpacs-design-profile-changed-hook
+                      #'grove--schedule-pushes)
     (jetpacs-chrome-define-root "grove" "notebooks"
                                 #'grove-navigation-presented-notebooks-screen
                                 :required t
@@ -170,13 +170,14 @@
   t)
 
 (defun grove-unregister ()
-  "Remove every Grove registration, hook, timer, and private snapshot."
-  (remove-hook 'grove-org-after-refresh-hook #'grove--schedule-pushes)
-  (remove-hook 'grove-library-after-refresh-hook #'grove--schedule-pushes)
-  (remove-hook 'jetpacs-design-profile-changed-hook #'grove--schedule-pushes)
+  "Remove every Grove registration, hook, timer, and private snapshot.
+`jetpacs-apps-unregister' tears down everything attributed to the owner:
+actions, the chrome root and both widget roots, ledgered hooks and the
+app entry.  The module unregisters below reset state only they hold."
   (when (timerp grove--push-timer)
     (cancel-timer grove--push-timer))
   (setq grove--push-timer nil)
+  (jetpacs-apps-unregister grove-owner)
   (grove-navigation-unregister)
   (grove-structure-unregister)
   (grove-views-unregister)
@@ -184,12 +185,6 @@
   (grove-document-unregister)
   (grove-org-unregister)
   (grove-library-reset)
-  (grove-widgets-unregister)
-  (dolist (name '("grove.agenda.refresh" "grove.agenda.select"
-                  "grove.agenda.item.open" "grove.agenda.done"))
-    (jetpacs-undefaction name))
-  (jetpacs-apps-unregister grove-owner)
-  (jetpacs-chrome-remove grove-owner)
   (grove-design-unregister)
   t)
 

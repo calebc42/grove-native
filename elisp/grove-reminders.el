@@ -253,15 +253,11 @@ authoritative empty set."
     (jetpacs-defaction "grove.reminder.complete"
                        #'grove-reminders--on-complete)
     (jetpacs-defaction "grove.reminder.reschedule"
-                       #'grove-reminders--on-reschedule))
-  (remove-hook 'grove-org-after-refresh-hook
-               #'grove-reminders-schedule-sync)
-  (add-hook 'grove-org-after-refresh-hook
-            #'grove-reminders-schedule-sync)
-  (remove-hook 'jetpacs-shell-after-push-hook
-               #'grove-reminders-schedule-sync)
-  (add-hook 'jetpacs-shell-after-push-hook
-            #'grove-reminders-schedule-sync)
+                       #'grove-reminders--on-reschedule)
+    (jetpacs-add-hook 'grove-org-after-refresh-hook
+                      #'grove-reminders-schedule-sync)
+    (jetpacs-add-hook 'jetpacs-shell-after-push-hook
+                      #'grove-reminders-schedule-sync))
   (grove-reminders-schedule-sync)
   t)
 
@@ -269,10 +265,10 @@ authoritative empty set."
   "Remove Grove reminder handlers and local reconciliation state.
 The Companion's accepted set is deliberately not cleared as an unload side
 effect; disabling reminders through settings sends an explicit empty set."
-  (remove-hook 'grove-org-after-refresh-hook
-               #'grove-reminders-schedule-sync)
-  (remove-hook 'jetpacs-shell-after-push-hook
-               #'grove-reminders-schedule-sync)
+  (jetpacs-remove-hook 'grove-org-after-refresh-hook
+                       #'grove-reminders-schedule-sync)
+  (jetpacs-remove-hook 'jetpacs-shell-after-push-hook
+                       #'grove-reminders-schedule-sync)
   (when (timerp grove-reminders--sync-timer)
     (cancel-timer grove-reminders--sync-timer))
   (setq grove-reminders--sync-timer nil
