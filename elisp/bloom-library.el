@@ -684,6 +684,226 @@ makes the second end in an ellipsis."
           (and (ignore-errors (bloom-library-outline-refresh notebook-id))
                (copy-tree (gethash key bloom-library--heading-refs)))))))
 
+;;;; Read-mode structure, as the app's OrgParser and BlockParser build it
+
+(defconst bloom-library--list-item-re
+  "\\`\\([ \t]*\\)\\([-+]\\|\\([0-9]+\\)[.)]\\)[ \t]+\\(?:\\[\\([ Xx-]\\)\\][ \t]+\\)?\\(.*\\)\\'"
+  "A plain-list item: indent, bullet, ordinal, checkbox, and text.")
+
+(defconst bloom-library--begin-re "\\`[ \t]*#\\+[Bb][Ee][Gg][Ii][Nn]_\\([^ \t]+\\)\\(.*\\)\\'"
+  "A `#+BEGIN_TYPE' line: type and trailing text.")
+
+(defconst bloom-library--end-re "\\`[ \t]*#\\+[Ee][Nn][Dd]_\\([^ \t]+\\)[ \t]*\\'"
+  "A `#+END_TYPE' line.")
+
+(defconst bloom-library--keyword-re "\\`[ \t]*#\\+\\([A-Za-z][A-Za-z0-9_-]*\\):.*\\'"
+  "A standalone `#+KEYWORD:' line.")
+
+(defun bloom-library--keyword-line-p (line)
+  "Return non-nil when LINE is a keyword line other than a block marker."
+  (and (string-match bloom-library--keyword-re line)
+       (not (string-match-p "\\`[ \t]*#\\+\\(?:[Bb][Ee][Gg][Ii][Nn]\\|[Ee][Nn][Dd]\\)_"
+                            line))))
+
+(defun bloom-library--list-continuation-p (line indent)
+  "Return non-nil when LINE continues a list item indented INDENT columns."
+  (and (not (string-blank-p line))
+       (> (- (length line) (length (string-trim-left line))) indent)
+       (not (string-prefix-p "|" (string-trim-left line)))
+       (not (bloom-library--keyword-line-p line))
+       (not (string-match-p bloom-library--begin-re line))
+       (not (string-match-p bloom-library--end-re line))))
+
+(defun bloom-library-parse-blocks (lines)
+  "Group body LINES into the app's read-mode blocks.
+Each block is a plist with `:type' paragraph, list, block, or table.  A
+`#+BEGIN' block keeps any keyword run directly above it as affiliated
+lines; a keyword run on its own becomes a collapsed block of its own."
+  (let ((lines (vconcat lines)) (i 0) blocks para)
+    (cl-labels
+        ((flush ()
+           (when para
+             (push (list :type 'paragraph :lines (nreverse para)) blocks)
+             (setq para nil)))
+         (parse-block (begin affiliated)
+           (string-match bloom-library--begin-re (aref lines begin))
+           (let* ((kind (upcase (match-string 1 (aref lines begin))))
+                  (trailing (string-trim (match-string 2 (aref lines begin))))
+                  (language (and (equal kind "SRC")
+                                 (car (split-string trailing nil t))))
+                  (j (1+ begin)) content)
+             (catch 'done
+               (while (< j (length lines))
+                 (let ((line (aref lines j)))
+                   (when (and (string-match bloom-library--end-re line)
+                              (equal (upcase (match-string 1 line)) kind))
+                     (setq j (1+ j))
+                     (throw 'done nil))
+                   (push line content)
+                   (setq j (1+ j)))))
+             (push (list :type 'block :kind kind :language language
+                         :affiliated affiliated :lines (nreverse content)
+                         :keyword-run nil :start begin)
+                   blocks)
+             (setq i j))))
+      (while (< i (length lines))
+        (let ((line (aref lines i)))
+          (cond
+           ((string-match-p bloom-library--begin-re line)
+            (flush) (parse-block i nil))
+           ((bloom-library--keyword-line-p line)
+            (let ((k i) run)
+              (while (and (< k (length lines))
+                          (bloom-library--keyword-line-p (aref lines k)))
+                (push (aref lines k) run)
+                (setq k (1+ k)))
+              (setq run (nreverse run))
+              (flush)
+              (if (and (< k (length lines))
+                       (string-match-p bloom-library--begin-re (aref lines k)))
+                  (parse-block k run)
+                (string-match bloom-library--keyword-re (car run))
+                (push (list :type 'block
+                            :kind (if (cdr run) "KEYWORDS"
+                                    (upcase (match-string 1 (car run))))
+                            :affiliated nil :lines run :keyword-run t :start i)
+                      blocks)
+                (setq i k))))
+           ((string-prefix-p "|" (string-trim-left line))
+            (flush)
+            (let (table)
+              (while (and (< i (length lines))
+                          (string-prefix-p "|" (string-trim-left (aref lines i))))
+                (push (aref lines i) table)
+                (setq i (1+ i)))
+              (push (list :type 'table :lines (nreverse table)) blocks)))
+           ((string-match bloom-library--list-item-re line)
+            (flush)
+            (let (items)
+              (catch 'end
+                (while (< i (length lines))
+                  (let ((current (aref lines i)))
+                    (cond
+                     ((string-match bloom-library--list-item-re current)
+                      (push (list :indent (length (match-string 1 current))
+                                  :ordered (and (match-string 3 current) t)
+                                  :checkbox (match-string 4 current)
+                                  :text (match-string 5 current))
+                            items)
+                      (setq i (1+ i)))
+                     ((and items (bloom-library--list-continuation-p
+                                  current (plist-get (car items) :indent)))
+                      (setcar items
+                              (plist-put (car items) :text
+                                         (concat (plist-get (car items) :text) " "
+                                                 (string-trim current))))
+                      (setq i (1+ i)))
+                     (t (throw 'end nil))))))
+              (push (list :type 'list
+                          :items (bloom-library--number-items (nreverse items)))
+                    blocks)))
+           ((string-blank-p line) (flush) (setq i (1+ i)))
+           (t (push line para) (setq i (1+ i))))))
+      (flush)
+      (nreverse blocks))))
+
+(defun bloom-library--number-items (items)
+  "Return list ITEMS, each ordered item numbered within its own nested run."
+  (let (counts)
+    (mapcar (lambda (item)
+              (let ((indent (plist-get item :indent)))
+                ;; A shallower item closes deeper runs; a bullet breaks a run.
+                (setq counts (seq-filter (lambda (c) (<= (car c) indent)) counts))
+                (if (plist-get item :ordered)
+                    (let ((cell (assoc indent counts)))
+                      (if cell (setcdr cell (1+ (cdr cell)))
+                        (push (cons indent 1) counts))
+                      (plist-put item :ordinal (cdr (assoc indent counts))))
+                  (setq counts (assq-delete-all indent counts))
+                  item)))
+            items)))
+
+(defun bloom-library-parse-subtree (content todo-keywords done-keywords now)
+  "Parse subtree CONTENT into the app's read-mode headings, relative to NOW.
+TODO-KEYWORDS and DONE-KEYWORDS are the buffer's keywords.  Each heading
+plist carries its level, keyword, priority, title, own tags, planning
+labels, PROPERTIES pairs, LOGBOOK lines, and body blocks."
+  (let ((lines (vconcat (split-string content "\n")))
+        (i 0) headings)
+    (while (< i (length lines))
+      (let ((line (aref lines i)))
+        (if (not (string-match "\\`\\(\\*+\\)[ \t]+\\(.*\\)\\'" line))
+            (setq i (1+ i))
+          (let* ((level (length (match-string 1 line)))
+                 (rest (match-string 2 line))
+                 todo priority tags planning properties logbook body)
+            (when (string-match "[ \t]+\\(:\\(?:[[:alnum:]_@#%]+:\\)+\\)[ \t]*\\'" rest)
+              ;; Read the match before `split-string' runs its own.
+              (let ((cut (match-beginning 0)) (field (match-string 1 rest)))
+                (setq tags (split-string field ":" t)
+                      rest (substring rest 0 cut))))
+            (let ((word (car (split-string rest))))
+              (when (member word todo-keywords)
+                (setq todo word rest (string-trim-left (substring rest (length word))))))
+            (when (string-match "\\`\\[#\\(.\\)\\][ \t]*" rest)
+              (setq priority (match-string 1 rest)
+                    rest (substring rest (match-end 0))))
+            (setq i (1+ i))
+            (when (and (< i (length lines))
+                       (string-match-p "\\`[ \t]*\\(?:SCHEDULED\\|DEADLINE\\|CLOSED\\):"
+                                       (aref lines i)))
+              (let ((pl (aref lines i)) (start 0))
+                (while (string-match "\\(SCHEDULED\\|DEADLINE\\|CLOSED\\):[ \t]*\\([<[][^]>]*[]>]\\)"
+                                     pl start)
+                  ;; Capture the match first: formatting runs its own match.
+                  (let ((key (intern (concat ":" (downcase (match-string 1 pl)))))
+                        (stamp (match-string 2 pl)))
+                    (setq start (match-end 0))
+                    (push (cons key (bloom-library-human-timestamp stamp now))
+                          planning))))
+              (setq i (1+ i)))
+            ;; PROPERTIES and LOGBOOK directly after the planning line.
+            (catch 'drawers
+              (while (and (< i (length lines))
+                          (string-match "\\`[ \t]*:\\(PROPERTIES\\|LOGBOOK\\):[ \t]*\\'"
+                                        (aref lines i)))
+                (let ((name (upcase (match-string 1 (aref lines i)))) (j (1+ i)) pending)
+                  (while (and (< j (length lines))
+                              (not (string-match-p "\\`[ \t]*:END:[ \t]*\\'" (aref lines j)))
+                              (not (string-match-p "\\`\\*+[ \t]" (aref lines j))))
+                    (push (aref lines j) pending)
+                    (setq j (1+ j)))
+                  (unless (and (< j (length lines))
+                               (string-match-p "\\`[ \t]*:END:" (aref lines j)))
+                    (throw 'drawers nil))  ; unclosed: body text
+                  (setq pending (nreverse pending))
+                  (if (equal name "PROPERTIES")
+                      (dolist (prop pending)
+                        (when (string-match "\\`[ \t]*:\\([^: \t]+\\):[ \t]*\\(.*\\)\\'" prop)
+                          (push (cons (format ":%s:" (match-string 1 prop))
+                                      (match-string 2 prop))
+                                properties)))
+                    (setq logbook (append logbook (mapcar #'string-trim pending))))
+                  (setq i (1+ j)))))
+            (while (and (< i (length lines))
+                        (not (string-match-p "\\`\\*+[ \t]" (aref lines i))))
+              (push (aref lines i) body)
+              (setq i (1+ i)))
+            (push (list :level level :todo todo
+                        :done (and todo (member todo done-keywords) t)
+                        :priority priority :title (string-trim rest) :tags tags
+                        :scheduled (alist-get :scheduled planning)
+                        :deadline (alist-get :deadline planning)
+                        :closed (alist-get :closed planning)
+                        :properties (nreverse properties) :logbook logbook
+                        :blocks (bloom-library-parse-blocks (nreverse body)))
+                  headings)))))
+    (let ((ordered (nreverse headings)) (index 0))
+      (mapcar (lambda (heading)
+                (prog1 (append (list :index index) heading)
+                  (setq index (1+ index))))
+              ordered))))
+
 (defun bloom-library--document-info (notebook-id heading-id)
   "Return private document information for NOTEBOOK-ID and HEADING-ID."
   (let ((ref (or (bloom-library-resolve-heading notebook-id heading-id)
@@ -714,6 +934,11 @@ makes the second end in an ellipsis."
                      :properties (seq-take
                                   (org-entry-properties (point) 'standard) 50)
                      :ancestors ancestors :buffer (buffer-name)
+                     :file-label (file-name-nondirectory
+                                  (or (buffer-file-name) (buffer-name)))
+                     :read (bloom-library-parse-subtree
+                            content org-todo-keywords-1 org-done-keywords
+                            (current-time))
                      :beg beg :end end :content content
                      :revision (secure-hash 'sha256 content)
                      :ref ref))))

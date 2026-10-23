@@ -1815,3 +1815,84 @@ checks, run from the foundation's applet tooling."
             (should-not bloom-library-expanded-folder-ids)))
       (delete-directory root t)
       (bloom-library-reset))))
+
+(ert-deftest bloom-read-parser-matches-the-apps-structure ()
+  "Headings keep planning, drawers and blocks as the app's parser does."
+  (let* ((content (concat "* Portugal trip :travel:\n"
+                          ":PROPERTIES:\n:CREATED: [2026-08-02 Sun]\n:END:\n"
+                          "Two weeks away.\nStill planning.\n\n"
+                          "** TODO [#A] Book flat :travel:lodging:\n"
+                          "DEADLINE: <2026-08-30 Sun> SCHEDULED: <2026-08-20 Thu 09:00>\n"
+                          ":LOGBOOK:\n- Note taken\n:END:\n"
+                          "- [ ] Passport\n- [X] Sunscreen\n  in the bag\n1. one\n2. two\n"
+                          "#+CAPTION: Fig\n#+BEGIN_SRC sh\necho hi\n#+END_SRC\n"
+                          "#+TBLFM: x\n| a | b |\n"
+                          "** NEXT Rent a car\n"))
+         (headings (bloom-library-parse-subtree
+                    content '("TODO" "DONE") '("DONE")
+                    (encode-time (list 0 0 12 23 10 2026))))
+         (own (nth 0 headings)) (flat (nth 1 headings)) (car-row (nth 2 headings)))
+    (should (= (length headings) 3))
+    (should (equal (plist-get own :tags) '("travel")))
+    (should (equal (plist-get own :properties) '((":CREATED:" . "[2026-08-02 Sun]"))))
+    (should (equal (plist-get (car (plist-get own :blocks)) :lines)
+                   '("Two weeks away." "Still planning.")))
+    (should (equal (plist-get flat :todo) "TODO"))
+    (should (equal (plist-get flat :priority) "A"))
+    (should (equal (plist-get flat :title) "Book flat"))
+    (should (equal (plist-get flat :deadline) "Aug 30"))
+    (should (equal (plist-get flat :scheduled) "Aug 20 09:00"))
+    (should (equal (plist-get flat :logbook) '("- Note taken")))
+    (let ((blocks (plist-get flat :blocks)))
+      (should (equal (mapcar (lambda (b) (plist-get b :type)) blocks)
+                     '(list block block table)))
+      (let ((items (plist-get (nth 0 blocks) :items)))
+        (should (equal (mapcar (lambda (i) (plist-get i :checkbox)) items)
+                       '(" " "X" nil nil)))
+        (should (equal (plist-get (nth 1 items) :text) "Sunscreen in the bag"))
+        (should (equal (plist-get (nth 3 items) :ordinal) 2)))
+      (should (equal (plist-get (nth 1 blocks) :kind) "SRC"))
+      (should (equal (plist-get (nth 1 blocks) :language) "sh"))
+      (should (equal (plist-get (nth 1 blocks) :affiliated) '("#+CAPTION: Fig")))
+      (should (plist-get (nth 2 blocks) :keyword-run))
+      (should (equal (plist-get (nth 2 blocks) :kind) "TBLFM")))
+    ;; NEXT is not a configured keyword, so it stays in the title.
+    (should-not (plist-get car-row :todo))
+    (should (equal (plist-get car-row :title) "NEXT Rent a car"))))
+
+(ert-deftest bloom-read-inline-markup-becomes-spans ()
+  "Inline markup maps onto the app's span styles."
+  (let ((spans (bloom-read-spans
+                "A *bold* /it/ =code= see [[https://x.org][site]] <2026-10-23 Fri>.")))
+    (should (cl-find 600 spans :key (lambda (s) (plist-get s :font_weight))
+                     :test #'equal))
+    (should (cl-find t spans :key (lambda (s) (plist-get s :italic))))
+    (should (cl-find "site" spans :key (lambda (s) (plist-get s :text)) :test #'equal))
+    (should (cl-find "<2026-10-23 Fri>" spans :key (lambda (s) (plist-get s :text))
+                     :test #'equal))
+    (should (equal (mapconcat (lambda (s) (plist-get s :text)) spans "")
+                   "A bold it code see site <2026-10-23 Fri>."))))
+
+(ert-deftest bloom-read-screen-is-deterministic-and-folds ()
+  "The parity reader is repeatable and folds a heading's subtree."
+  (let* ((bloom-read--folded (make-hash-table :test #'equal))
+         (bloom-read--open (make-hash-table :test #'equal))
+         (info (list :notebook-id "n" :heading-id "h" :headline "Trip"
+                     :file-label "travel.org" :ancestors nil
+                     :read (bloom-library-parse-subtree
+                            "* Trip\nBody.\n** Child\nChild body.\n*** Leaf\n"
+                            '("TODO" "DONE") '("DONE") (current-time)))))
+    (cl-letf (((symbol-function 'jetpacs-app-defer-refresh) #'ignore))
+      (let ((first (jetpacs-node->canonical-json
+                    (bloom-read-screen info (jetpacs-view-switch "outline")))))
+        (should (string-search "Child body." first))
+        (should (string-search "Leaf" first))
+        (should (string-search "bloom.t.read-title" first))
+        (should (equal first (jetpacs-node->canonical-json
+                              (bloom-read-screen info (jetpacs-view-switch "outline"))))))
+      (should (eq (bloom-read-on-fold info '(:index 1) nil) 'accepted))
+      (let ((folded (jetpacs-node->canonical-json
+                     (bloom-read-screen info (jetpacs-view-switch "outline")))))
+        (should-not (string-search "Child body." folded))
+        (should-not (string-search "Leaf" folded))
+        (should (string-search " 1" folded))))))

@@ -29,6 +29,7 @@
 (require 'bloom-design)
 (require 'bloom-library)
 (require 'bloom-org)
+(require 'bloom-read)
 
 (defconst bloom-document--screen-id "document"
   "Stable chrome screen id for Bloom's document presenter.")
@@ -357,10 +358,66 @@ Return a handler status."
                            :caption "Refresh the notebook and try again.")
       :back back))))
 
+(defun bloom-document--parity-read-info ()
+  "Return the current document's info when read mode can draw parity, else nil.
+Parity needs the design runtime, Bloom's parity faces, read mode, and a
+parsed subtree in the snapshot."
+  (when (and (jetpacs-extension-advertised-p "jetpacs.design" :app)
+             (bloom-design-parity-available-p))
+    (let ((info (condition-case nil (bloom-document--current-info) (error nil))))
+      (and info (plist-get info :read)
+           (eq (bloom-document--mode (plist-get info :notebook-id)
+                                     (plist-get info :heading-id))
+               'read)
+           info))))
+
 (defun bloom-document-presented-screen (back)
-  "Build the profile-selected document reader or editor with BACK."
-  (bloom-design-present-if-advertised
-   (bloom-document-screen back) 'document))
+  "Build the profile-selected document reader or editor with BACK.
+Read mode under the design runtime is the Android app's own reader."
+  (if-let* ((info (bloom-document--parity-read-info)))
+      (bloom-read-screen info back)
+    (bloom-design-present-if-advertised
+     (bloom-document-screen back) 'document)))
+
+(defun bloom-document--on-read-fold (args params)
+  "Fold or unfold ARGS' heading in the current read view for PARAMS."
+  (condition-case nil
+      (bloom-read-on-fold (bloom-document--current-info) args params)
+    (ebp-org-unresolved 'stale)))
+
+(defun bloom-document--on-read-drawer (args params)
+  "Open or close ARGS' drawer or block in the current read view for PARAMS."
+  (condition-case nil
+      (bloom-read-on-drawer (bloom-document--current-info) args params)
+    (ebp-org-unresolved 'stale)))
+
+(defun bloom-document--on-read-link (args params)
+  "Follow ARGS' Org link target from the current note on PARAMS' surface.
+Org resolves the link in the note's own buffer: a web link goes to the
+browser through `browse-url', and a destination in a notebook opens in
+Bloom through the same presenter the reader used."
+  (let ((target (plist-get args :target))
+        (surface (or (plist-get params :surface) bloom-app-surface)))
+    (if (not (and (stringp target) (not (string-empty-p target)))) 'rejected
+      (condition-case nil
+          (let* ((info (bloom-document--current-info))
+                 (source (get-buffer (plist-get info :buffer))))
+            (jetpacs-flow-continue
+             (lambda ()
+               (condition-case err
+                   (save-window-excursion
+                     (with-current-buffer source
+                       (org-link-open-from-string (format "[[%s]]" target)))
+                     (let ((destination (current-buffer)))
+                       (unless (or (eq destination source)
+                                   (not (buffer-file-name destination)))
+                         (bloom-document--linked-presenter
+                          source destination (point) surface))))
+                 (error
+                  (message "bloom: link failed (%s)" (car err))
+                  (jetpacs-shell-notify "Link could not be opened" surface)))))
+            'accepted)
+        (ebp-org-unresolved 'stale)))))
 
 (defun bloom-document--on-open (args params)
   "Open a document named by opaque ARGS on PARAMS' surface."
@@ -1242,7 +1299,8 @@ snapshot."
   '("bloom.document.open" "bloom.document.mode" "bloom.document.save"
     "bloom.document.todo" "bloom.document.planning"
     "bloom.planning.pick" "bloom.planning.suggest" "bloom.planning.focus"
-    "bloom.planning.month" "bloom.planning.clear" "bloom.planning.save")
+    "bloom.planning.month" "bloom.planning.clear" "bloom.planning.save"
+    "bloom.read.fold" "bloom.read.drawer" "bloom.read.link")
   "Action names owned by Bloom's document module.")
 
 (defun bloom-document-register ()
@@ -1252,6 +1310,15 @@ snapshot."
                       (jetpacs-defaction "bloom.document.mode" #'bloom-document--on-mode)
                       (jetpacs-defaction "bloom.document.save" #'bloom-document--on-save)
                       (jetpacs-defaction "bloom.document.todo" #'bloom-document--on-todo)
+                      (jetpacs-defaction "bloom.read.fold" #'bloom-document--on-read-fold
+                                         :args '((:name index :type "number" :required t))
+                                         :doc "Fold or unfold one heading of the open read view")
+                      (jetpacs-defaction "bloom.read.drawer" #'bloom-document--on-read-drawer
+                                         :args '((:name key :type "text" :required t))
+                                         :doc "Open or close one drawer or block of the read view")
+                      (jetpacs-defaction "bloom.read.link" #'bloom-document--on-read-link
+                                         :args '((:name target :type "text" :required t))
+                                         :doc "Follow an Org link from the open note")
                       (jetpacs-defaction "bloom.document.planning"
                                          #'bloom-document--open-planning
                                          :args '((:name notebook-id :type "ref" :required t)

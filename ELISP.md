@@ -14,7 +14,12 @@ information architecture and visual workflows.
   back to the other Jetpacs apps) and its floating Search/Capture/New dock.
 - Pixel parity with the Android app, screen by screen, under the design
   runtime (see "Pixel parity" below). Notebooks (tree, drawer, dock) and the
-  Outline (folding, PREFACE band, chips, long-press structure menu) are done.
+  Outline (folding, PREFACE band, chips, long-press structure menu) and read
+  mode (`bloom-read.el`: tags, title, planning chips, drawers, paragraphs,
+  checklists, blocks, foldable sub-headings, inline markup and links) are
+  done. Read mode parses each note at snapshot time with
+  `bloom-library-parse-subtree`, a port of the app's OrgParser and
+  BlockParser grouping.
 - A bounded nested notebook tree over the configured Org agenda scope, with a
   flat-list option, favorites, folder drill-down, and safe create, rename,
   move, and recoverable-trash operations.
@@ -188,6 +193,9 @@ a style the receiver cannot resolve.
 
 Parity rests on a few measured facts:
 
+- Text the app sets with an explicit `TextStyle` line height (read-mode
+  paragraphs) is trimmed at its ends like the receiver's, so those roles are
+  marked `trimmed` and get no restored leading.
 - Every IBM Plex face is 1.3 em tall. The app's `Text` calls that name no
   style inherit Material's `bodyLarge`, which Bloom sets to 1.65 em; those
   that name a style keep 1.3 em. Each `bloom.t.*` text role records which.
@@ -203,7 +211,8 @@ Known receiver-side gaps: the drawer hamburger and the back arrow are the
 Companion's Material icons rather than the app's `☰` and `←` glyphs (System
 Back needs the `arrow_back` button); the app's thin custom icons and
 accent-tinted shadows have no node equivalent; design text has no
-strike-through for DONE titles; and the navigation-bar scrim stays clear.
+strike-through for DONE titles or `+struck+` spans, and mono spans use the
+system monospace face rather than Plex Mono; and the navigation-bar scrim stays clear.
 Multi-line outline rows still drift about a pixel each from line rounding.
 
 ## Jetpacs outline

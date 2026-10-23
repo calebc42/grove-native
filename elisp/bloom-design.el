@@ -534,10 +534,27 @@ The order is the app's `MONOGRAM_PALETTE_KEYS', which its name hash indexes.")
     ("kv-label" "plex-mono" 12 400 "faint")
     ("kv-count" "plex-mono" 11 400 "faint")
     ("intro" "plex-sans" 13.5 400 "on-background" 0 1.4815)
-    ("fab-plus" "plex-sans" 26 400 "on-primary"))
+    ("fab-plus" "plex-sans" 26 400 "on-primary")
+    ("pill" "plex-sans" 11 600 nil)
+    ("breadcrumb" "plex-mono" 11.5 400 "faint")
+    ("read-title" "plex-serif" 25 600 "on-background" 0 1.3)
+    ("read-h1" "plex-serif" 19 600 "on-background" 0 1.3)
+    ("read-h2" "plex-serif" 17 600 "on-background" 0 1.3)
+    ("read-h3" "plex-serif" 16 600 "on-background" 0 1.3)
+    ("read-body" "plex-serif" 16 400 "on-background" 0 1.65 trimmed)
+    ("read-item" "plex-serif" 16 400 "on-background" 0 1.55)
+    ("read-item-done" "plex-serif" 16 400 "faint" 0 1.55)
+    ("read-ordinal" "plex-serif" 16 400 nil)
+    ("read-priority" "plex-mono" 12 700 nil)
+    ("read-count" "plex-mono" 12 400 nil)
+    ("read-chip" "plex-mono" 12.5 400 nil)
+    ("read-fab" "plex-sans" 20 400 "on-primary"))
   "The Android app's literal text roles, one face per distinct `Text' call.
-Each entry is name, family, size, weight, color, tracking, and line height
-in em, and becomes style `bloom.t.NAME'.  The line height
+Each entry is name, family, size, weight, color, tracking, line height in
+em, and optionally `trimmed', and becomes style `bloom.t.NAME'.  A
+`trimmed' role is set in the app with an explicit `TextStyle' line height,
+which Compose trims at the ends as the receiver does, so it gets no
+restored leading.  The line height
 defaults to 1.65 em: the app's `Text' calls that name no style inherit
 Material's `bodyLarge', which Bloom sets to 1.65 em, while those that name a
 style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
@@ -545,7 +562,7 @@ style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
 (defun bloom-design--text-role-styles ()
   "Return one exact text style per entry of `bloom-design-text-roles'."
   (mapcar
-   (pcase-lambda (`(,name ,family ,size ,weight ,color ,tracking ,line))
+   (pcase-lambda (`(,name ,family ,size ,weight ,color ,tracking ,line ,leading))
      (cons (concat "bloom.t." name)
            (jetpacs-design-style
             (append
@@ -558,7 +575,8 @@ style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
              (and color
                   `(("content_color"
                      . ,(bloom-design--token (concat "color." color)))))
-             (bloom-design--untrimmed-leading size (or line 1.65))))))
+             (unless (eq leading 'trimmed)
+               (bloom-design--untrimmed-leading size (or line 1.65)))))))
    bloom-design-text-roles))
 
 (defun bloom-design--untrimmed-leading (size line)
@@ -633,10 +651,65 @@ pixels exactly as the app's does."
                      ("padding_vertical" . ,(jetpacs-design-dimension 1))))))
           bloom-design-chip-names))
 
+(defconst bloom-design-soft-names
+  '("success-soft" "warning-soft" "error-soft" "info-soft" "accent-soft"
+    "surface-raised")
+  "Soft fills behind read-mode pills and planning chips.")
+
+(defun bloom-design--read-styles ()
+  "Return read mode's pill, outline pill, planning chip, and switch faces."
+  (append
+   (cl-loop
+    for soft in bloom-design-soft-names
+    collect (cons (concat "bloom.pill." soft)
+                  (jetpacs-design-style
+                   `(("background_color" . ,(bloom-design--token (concat "color." soft)))
+                     ("corner_radius" . ,(jetpacs-design-dimension 20))
+                     ("padding_horizontal" . ,(jetpacs-design-dimension 9))
+                     ("padding_vertical" . ,(jetpacs-design-dimension 3)))))
+    collect (cons (concat "bloom.read-chip." soft)
+                  (jetpacs-design-style
+                   `(("background_color" . ,(bloom-design--token (concat "color." soft)))
+                     ("corner_radius" . ,(jetpacs-design-dimension 6))
+                     ("padding_horizontal" . ,(jetpacs-design-dimension 8))
+                     ("padding_vertical" . ,(jetpacs-design-dimension 3))))))
+   (cl-loop
+    for ink in bloom-design-ink-names
+    collect (cons (concat "bloom.pill-outline." ink)
+                  (jetpacs-design-style
+                   `(("border_color" . ,(bloom-design--token (concat "color." ink)))
+                     ("border_width" . ,(jetpacs-design-dimension 1))
+                     ("corner_radius" . ,(jetpacs-design-dimension 20))
+                     ("padding_horizontal" . ,(jetpacs-design-dimension 9))
+                     ("padding_vertical" . ,(jetpacs-design-dimension 3))))))
+   `(("bloom.toggle"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(bloom-design--token "color.surface-raised"))
+            ("corner_radius" . ,(jetpacs-design-dimension 10))
+            ("padding" . ,(jetpacs-design-dimension 3)))))
+     ("bloom.toggle-on"
+      . ,(jetpacs-design-style
+          `(("background_color" . ,(bloom-design--token "color.primary"))
+            ("corner_radius" . ,(jetpacs-design-dimension 8))
+            ("padding_horizontal" . ,(jetpacs-design-dimension 14))
+            ("padding_vertical" . ,(jetpacs-design-dimension 6)))))
+     ("bloom.toggle-off"
+      . ,(jetpacs-design-style
+          `(("corner_radius" . ,(jetpacs-design-dimension 8))
+            ("padding_horizontal" . ,(jetpacs-design-dimension 14))
+            ("padding_vertical" . ,(jetpacs-design-dimension 6)))))
+     ("bloom.read-fab"
+      . ,(jetpacs-design-style
+          `(("width" . ,(jetpacs-design-dimension 54))
+            ("height" . ,(jetpacs-design-dimension 54))
+            ("corner_radius" . ,(jetpacs-design-dimension 18))
+            ("background_color" . ,(bloom-design--token "color.primary"))))))))
+
 (defun bloom-design--parity-styles ()
   "Return the faces that reproduce the Android app's chrome metrics."
   (append
    (bloom-design--text-role-styles)
+   (bloom-design--read-styles)
    (bloom-design--monogram-styles)
    (bloom-design--ink-styles)
    (bloom-design--chip-styles)
