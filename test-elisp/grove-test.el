@@ -1011,7 +1011,7 @@ Foundation renderer takes its whole appearance from them."
                         (goto-char beg)
                         (org-end-of-subtree t t)
                         (point))))
-            (cl-letf (((symbol-function 'jetpacs-editor-org-save-policy)
+            (cl-letf (((symbol-function 'jetpacs-org-save-policy)
                        (lambda (_buffer)
                          (goto-char (point-max))
                          (insert "CORRUPT")
@@ -1021,7 +1021,7 @@ Foundation renderer takes its whole appearance from them."
                 buffer beg end "* TODO Changed\nNew.\n"))
               (should (equal (buffer-string) before))
               (should-not (buffer-modified-p)))
-            (cl-letf (((symbol-function 'jetpacs-editor-org-save-policy)
+            (cl-letf (((symbol-function 'jetpacs-org-save-policy)
                        (lambda (_buffer) t)))
               (let ((new-ref (grove-document--replace-subtree
                               buffer beg end "* TODO Changed\nNew.\n")))
