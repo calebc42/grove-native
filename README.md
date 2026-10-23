@@ -1,18 +1,32 @@
-# Grove Native
+# Bloom Native
 
-Grove's Elisp implementation for Jetpacs. Emacs Org owns files, state, parsing,
+*Formerly Grove Native.*
+
+Bloom's Elisp implementation for Jetpacs. Emacs Org owns files, state, parsing,
 search, capture and mutations; Jetpacs provides native presentation and durable
-transport. The Android reference implementation remains in [Grove](../grove/).
+transport. The Android reference implementation is
+[Bloom](https://github.com/rrajath/bloom) (formerly Grove), checked out
+locally in [`../grove/`](../grove/).
 
-The checkout name is `grove-native`; Elisp features remain `grove-*`, and the
-registered app and packaged feature remain `grove`. Installing or enabling the
+The checkout is `bloom-native`; Elisp features are `bloom-*`, and the
+registered app and packaged feature are `bloom`. Installing or enabling the
 applet is still an explicit user choice.
+
+## Rename from Grove
+
+Upstream renamed the Android app from Grove to Bloom on 2026-10, and this
+applet followed in full: checkout, Elisp features and symbols, wire actions
+(`bloom.*`), surfaces (`app:bloom`, `widget:bloom.*`), the Customize group,
+design presets (`bloom.default`, `bloom.light`, `bloom.dark`), and Jetpacs'
+packaging. Former `grove-*` Customize options remain obsolete aliases, and
+stored `grove-` ids are rewritten on the next library refresh. Home-screen
+widgets pinned under the old surface ids must be re-added.
 
 ## Layout and dependencies
 
 | Path | Owns |
 |---|---|
-| `elisp/` | Grove applet implementation and design presets |
+| `elisp/` | Bloom applet implementation and design presets |
 | `test-elisp/` | Hermetic ERT, Checkdoc and temporary compilation runner |
 | [ELISP.md](ELISP.md) | Implemented workflows, configuration and state boundaries |
 | [LICENSE](LICENSE) | Apache License 2.0 inherited with the source |
@@ -28,7 +42,7 @@ the `jetpacs-poc/jetpacs-components` module under `~/workspace/`. Run:
 `JETPACS_ROOT`, `EBP_EL_ROOT`, `EBP_ORG_ROOT` and `JETPACS_COMPONENTS_ROOT`
 overrides select individual dependencies.
 
-Jetpacs packages `grove-native/elisp` into the existing device `apps/grove`
+Jetpacs packages `bloom-native/elisp` into the device `apps/bloom`
 directory. This repository has no Android build or backend implementation.
 
 ## Extraction history

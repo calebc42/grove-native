@@ -1,21 +1,21 @@
-;;; grove-test.el --- ERT for the Grove Jetpacs applet -*- lexical-binding: t; -*-
+;;; bloom-test.el --- ERT for the Bloom Jetpacs applet -*- lexical-binding: t; -*-
 
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require 'ert)
 (require 'cl-lib)
 (require 'org)
-(require 'grove)
-(grove-register)  ; `require' only loads
+(require 'bloom)
+(bloom-register)  ; `require' only loads
 
-(defconst grove-test--now (encode-time 0 30 9 1 9 2026)
-  "Stable local time used by Grove snapshot tests.")
+(defconst bloom-test--now (encode-time 0 30 9 1 9 2026)
+  "Stable local time used by Bloom snapshot tests.")
 
-(defun grove-test--ref (file pos headline &optional id)
+(defun bloom-test--ref (file pos headline &optional id)
   "Return a private Org reference for FILE, POS, HEADLINE, and optional ID."
   (list :id id :file file :pos pos :headline headline))
 
-(defun grove-test--agenda-item
+(defun bloom-test--agenda-item
     (file pos headline date &optional time type todo priority tags id)
   "Return one canonical agenda fixture row."
   `((headline . ,headline)
@@ -29,22 +29,22 @@
     (type . ,type)
     (extra . nil)
     (ts-date . nil)
-    (ref . ,(grove-test--ref file pos headline id))))
+    (ref . ,(bloom-test--ref file pos headline id))))
 
-(defun grove-test--snapshot ()
+(defun bloom-test--snapshot ()
   "Return a populated explicit snapshot without private paths."
   '(:day-label "Tuesday" :date-label "September 1"
                :updated-label "Updated 09:30" :today-count 1 :total-count 2
                :error nil
                :items
-               ((:id "grove-item-a" :headline "Write project brief" :todo "TODO"
+               ((:id "bloom-item-a" :headline "Write project brief" :todo "TODO"
                      :priority "A" :tags ("work") :file-label "work.org" :time "09:00"
                      :date "2026-09-01" :type "scheduled" :section "TODAY")
-                (:id "grove-item-b" :headline "Book the train" :todo "NEXT"
+                (:id "bloom-item-b" :headline "Book the train" :todo "NEXT"
                      :priority nil :tags nil :file-label "travel.org" :time nil
                      :date "2026-09-02" :type "deadline" :section "TOMORROW"))))
 
-(defun grove-test--library-snapshot ()
+(defun bloom-test--library-snapshot ()
   "Return a populated Notebooks fixture without private paths."
   '(:notebooks
     ((:id "root-note" :folder-id nil :label "Inbox"
@@ -52,45 +52,45 @@
           :favorite nil))
     :folders nil :total-count 1 :truncated nil :error nil))
 
-(ert-deftest grove-org-refresh-builds-stable-private-snapshot ()
+(ert-deftest bloom-org-refresh-builds-stable-private-snapshot ()
   "The producer deduplicates, sorts, and keeps Org refs out of rendered IR."
   (let* ((file "/tmp/private-vault/work.org")
-         (today (grove-test--agenda-item
+         (today (bloom-test--agenda-item
                  file 20 "Write project brief" "2026-09-01"
                  " 9:00 " "scheduled" "TODO" "A" '("work") "task-1"))
          (duplicate (copy-tree today))
-         (tomorrow (grove-test--agenda-item
+         (tomorrow (bloom-test--agenda-item
                     file 50 "Book the train" "2026-09-02"
                     nil "deadline" "NEXT" nil nil nil))
          first-id second-id)
-    (let ((grove-org--snapshot (copy-tree grove-org--snapshot)))
+    (let ((bloom-org--snapshot (copy-tree bloom-org--snapshot)))
       (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-items)
                  (lambda (&rest _) (list tomorrow duplicate today))))
-        (should (grove-org-refresh grove-test--now))
-        (let ((snapshot (grove-org-snapshot)))
+        (should (bloom-org-refresh bloom-test--now))
+        (let ((snapshot (bloom-org-snapshot)))
           (should (= (plist-get snapshot :total-count) 2))
           (should (= (plist-get snapshot :today-count) 1))
           (should (equal (mapcar (lambda (row) (plist-get row :section))
                                  (plist-get snapshot :items))
                          '("TODAY" "TOMORROW")))
           (setq first-id (plist-get (car (plist-get snapshot :items)) :id)))
-        (should (grove-org-refresh grove-test--now))
+        (should (bloom-org-refresh bloom-test--now))
         (setq second-id
-              (plist-get (car (plist-get (grove-org-snapshot) :items)) :id))
+              (plist-get (car (plist-get (bloom-org-snapshot) :items)) :id))
         (should (equal first-id second-id))
         (should-not
          (string-search
           "/tmp/private-vault"
-          (jetpacs-node->canonical-json (grove-ui-screen nil))))))))
+          (jetpacs-node->canonical-json (bloom-ui-screen nil))))))))
 
-(ert-deftest grove-org-planning-marks-are-bounded-date-only-counts ()
+(ert-deftest bloom-org-planning-marks-are-bounded-date-only-counts ()
   "Planning scans one month but retains no Org identity or headline text."
   (let* ((private "/tmp/private-vault/secret.org")
-         (first (grove-test--agenda-item
+         (first (bloom-test--agenda-item
                  private 1 "Private A" "2026-09-03"))
-         (second (grove-test--agenda-item
+         (second (bloom-test--agenda-item
                   private 2 "Private B" "2026-09-08"))
-         (outside (grove-test--agenda-item
+         (outside (bloom-test--agenda-item
                    private 3 "Outside" "2026-10-01"))
          called)
     (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-items)
@@ -98,22 +98,22 @@
                  (setq called (list span start))
                  (list first (copy-tree first) (copy-tree first)
                        (copy-tree first) second outside))))
-      (let ((marks (grove-org-planning-marks "2026-09")))
+      (let ((marks (bloom-org-planning-marks "2026-09")))
         (should (equal called '(month "2026-09-01")))
         (should (equal marks '(("2026-09-03" . 3)
                                ("2026-09-08" . 1))))
         (should-not (string-search private (format "%S" marks)))
         (should-not (string-search "Private" (format "%S" marks)))))))
 
-(ert-deftest grove-agenda-builder-is-repeatable-over-explicit-state ()
+(ert-deftest bloom-agenda-builder-is-repeatable-over-explicit-state ()
   "The same snapshot and range produce byte-identical canonical screens."
-  (let ((grove-org--snapshot (grove-test--snapshot))
-        (grove-agenda-range "today"))
+  (let ((bloom-org--snapshot (bloom-test--snapshot))
+        (bloom-agenda-range "today"))
     (should
-     (equal (jetpacs-node->canonical-json (grove-ui-screen nil))
-            (jetpacs-node->canonical-json (grove-ui-screen nil))))))
+     (equal (jetpacs-node->canonical-json (bloom-ui-screen nil))
+            (jetpacs-node->canonical-json (bloom-ui-screen nil))))))
 
-(ert-deftest grove-refresh-pushes-widgets-only-when-granted ()
+(ert-deftest bloom-refresh-pushes-widgets-only-when-granted ()
   "Snapshot refresh never attempts widget traffic the session declined."
   (let (pushed)
     (cl-letf (((symbol-function 'jetpacs-connected-p) (lambda () t))
@@ -121,30 +121,30 @@
                (lambda (surface &rest _)
                  (push surface pushed))))
       (cl-letf (((symbol-function 'jetpacs-granted-p) (lambda (&rest _) nil)))
-        (grove--push-current-surfaces)
-        (should (equal (nreverse pushed) (list grove-app-surface))))
+        (bloom--push-current-surfaces)
+        (should (equal (nreverse pushed) (list bloom-app-surface))))
       (setq pushed nil)
       (cl-letf (((symbol-function 'jetpacs-granted-p)
                  (lambda (capability &rest _)
                    (equal capability "surfaces.widget"))))
-        (grove--push-current-surfaces)
+        (bloom--push-current-surfaces)
         (should (equal (nreverse pushed)
-                       (list grove-app-surface
-                             grove-capture-widget-surface
-                             grove-agenda-widget-surface)))))))
+                       (list bloom-app-surface
+                             bloom-capture-widget-surface
+                             bloom-agenda-widget-surface)))))))
 
-(ert-deftest grove-agenda-selects-deterministic-design-or-exact-material ()
+(ert-deftest bloom-agenda-selects-deterministic-design-or-exact-material ()
   "Agenda follows the app extension profile without forking its data model."
-  (let ((grove-org--snapshot (grove-test--snapshot))
-        (grove-agenda-range "today")
+  (let ((bloom-org--snapshot (bloom-test--snapshot))
+        (bloom-agenda-range "today")
         calls)
     (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
                (lambda (&rest args)
                  (push args calls)
                  nil)))
-      (let ((first (grove-ui-presented-screen nil))
-            (second (grove-ui-presented-screen nil))
-            (material (grove-ui-screen nil)))
+      (let ((first (bloom-ui-presented-screen nil))
+            (second (bloom-ui-presented-screen nil))
+            (material (bloom-ui-screen nil)))
         (should (equal first material))
         (should (equal (jetpacs-node->canonical-json first)
                        (jetpacs-node->canonical-json second)))
@@ -156,8 +156,8 @@
                (lambda (extension target)
                  (and (equal extension "jetpacs.design")
                       (eq target :app)))))
-      (let* ((first (grove-ui-presented-screen nil))
-             (second (grove-ui-presented-screen nil))
+      (let* ((first (bloom-ui-presented-screen nil))
+             (second (bloom-ui-presented-screen nil))
              (json (jetpacs-node->canonical-json first)))
         (should (equal (plist-get first :t) "jetpacs.design_scope"))
         (should (string-search "jetpacs.tabs" json))
@@ -166,24 +166,24 @@
         (should-not (string-search "jetpacs.pressable" json))
         (should (string-search "\"kind\":\"theme-role\"" json))
         (should-not (string-match-p "#[[:xdigit:]]\\{6,8\\}" json))
-        (should (string-search "grove.agenda.select" json))
-        (should (string-search "grove-item-a" json))
+        (should (string-search "bloom.agenda.select" json))
+        (should (string-search "bloom-item-a" json))
         (should (jetpacs-check-profile first 'app))
         (should (equal json (jetpacs-node->canonical-json second)))
         (should (<= (jetpacs-node-wire-bytes first) 262144))))))
 
-(ert-deftest grove-notebooks-selects-deterministic-design-or-exact-material ()
+(ert-deftest bloom-notebooks-selects-deterministic-design-or-exact-material ()
   "Notebooks keeps its Material tree as the exact unadvertised fallback."
-  (let ((grove-library-tree-view t)
-        (grove-library--snapshot (grove-test--library-snapshot))
+  (let ((bloom-library-tree-view t)
+        (bloom-library--snapshot (bloom-test--library-snapshot))
         calls)
     (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
                (lambda (&rest args)
                  (push args calls)
                  nil)))
-      (let ((first (grove-navigation-presented-notebooks-screen nil))
-            (second (grove-navigation-presented-notebooks-screen nil))
-            (material (grove-navigation-notebooks-screen nil)))
+      (let ((first (bloom-navigation-presented-notebooks-screen nil))
+            (second (bloom-navigation-presented-notebooks-screen nil))
+            (material (bloom-navigation-notebooks-screen nil)))
         (should (equal first material))
         (should (equal (jetpacs-node->canonical-json first)
                        (jetpacs-node->canonical-json second)))))
@@ -192,31 +192,31 @@
                (lambda (extension target)
                  (and (equal extension "jetpacs.design")
                       (eq target :app)))))
-      (let* ((first (grove-navigation-presented-notebooks-screen nil))
-             (second (grove-navigation-presented-notebooks-screen nil))
+      (let* ((first (bloom-navigation-presented-notebooks-screen nil))
+             (second (bloom-navigation-presented-notebooks-screen nil))
              (json (jetpacs-node->canonical-json first)))
         (should (equal (plist-get first :t) "jetpacs.design_scope"))
-        ;; The parity screen: Grove's exact faces, its own dock and drawer.
+        ;; The parity screen: Bloom's exact faces, its own dock and drawer.
         (should (string-search "\"t\":\"jetpacs.styled\"" json))
-        (should (string-search "grove.t.row-title" json))
-        (should (string-search "grove.library.notebook.menu" json))
+        (should (string-search "bloom.t.row-title" json))
+        (should (string-search "bloom.library.notebook.menu" json))
         (should (string-search "\"fab_position\":\"center\"" json))
         (should (string-search "\"drawer\"" json))
         (should (string-search "\"kind\":\"theme-role\"" json))
         (should-not (string-match-p "#[[:xdigit:]]\\{6,8\\}" json))
-        (should (string-search "grove.notebook.open" json))
+        (should (string-search "bloom.notebook.open" json))
         (should (string-search "root-note" json))
         (should (jetpacs-check-profile first 'app))
         (should (equal json (jetpacs-node->canonical-json second)))
         (should (<= (jetpacs-node-wire-bytes first) 262144))))))
 
-(ert-deftest grove-design-preset-is-complete-palette-neutral-and-bounded ()
-  "Grove binds every semantic slot without replacing live theme colors."
-  (let* ((profile (grove-design-profile))
+(ert-deftest bloom-design-preset-is-complete-palette-neutral-and-bounded ()
+  "Bloom binds every semantic slot without replacing live theme colors."
+  (let* ((profile (bloom-design-profile))
          (tokens (plist-get profile :tokens))
          (bindings (plist-get profile :component-styles))
          (scope (jetpacs-design-profile-scope
-                 profile (list (jetpacs-text "Grove")))))
+                 profile (list (jetpacs-text "Bloom")))))
     (should
      (equal
       (sort (mapcar #'car bindings) #'string<)
@@ -241,14 +241,18 @@
     (should-not (string-search "theme_roles" (jetpacs-node->canonical-json scope)))
     (should (<= (jetpacs-node-wire-bytes scope) 262144))))
 
-(ert-deftest grove-design-light-and-dark-presets-carry-the-literal-palette ()
-  "Grove Light and Grove Dark bind the app's verbatim colors and every slot."
-  (dolist (pair `((,(grove-design-light-profile) "#8A5A2B" "#F3EDE1")
-                  (,(grove-design-dark-profile) "#CB9D62" "#16130E")))
+(ert-deftest bloom-design-light-and-dark-presets-carry-the-literal-palette ()
+  "Every literal preset binds the app's verbatim colors and every slot.
+Bloom Light and Bloom Dark are the app's rosewater defaults; Grove Light and
+Grove Dark are the original palettes it still offers."
+  (dolist (pair `((,(bloom-design-light-profile) "#C06A6E" "#F8F3EE")
+                  (,(bloom-design-dark-profile) "#EBA8A2" "#25223A")
+                  (,(bloom-design-grove-light-profile) "#8A5A2B" "#F3EDE1")
+                  (,(bloom-design-grove-dark-profile) "#CB9D62" "#16130E")))
     (let* ((profile (car pair))
            (tokens (plist-get profile :tokens))
            (scope (jetpacs-design-profile-scope
-                   profile (list (jetpacs-text "Grove"))))
+                   profile (list (jetpacs-text "Bloom"))))
            (json (jetpacs-node->canonical-json scope)))
       (should (equal (plist-get (cdr (assoc "color.primary" tokens)) :kind)
                      "color"))
@@ -274,35 +278,38 @@
         (sort (mapcar #'car (plist-get profile :component-styles)) #'string<)
         (sort (copy-sequence jetpacs-design-component-style-slots) #'string<)))
       (should (equal (plist-get profile :typography)
-                     (plist-get (grove-design-profile) :typography)))
+                     (plist-get (bloom-design-profile) :typography)))
       (should (<= (jetpacs-node-wire-bytes scope) 262144))))
   (should (equal (mapcar #'car
                          (seq-filter
                           (lambda (binding)
                             (string-prefix-p "text." (car binding)))
-                          grove-design-component-styles))
+                          bloom-design-component-styles))
                  '("text.body" "text.title" "text.headline" "text.caption"
                    "text.label" "text.mono"))))
 
-(ert-deftest grove-design-registers-and-removes-all-three-presets ()
+(ert-deftest bloom-design-registers-and-removes-all-presets ()
   "Registration exposes every preset to Design Lab and is fully reversible."
-  (grove-design-register)
-  (dolist (id grove-design-preset-ids)
+  (bloom-design-register)
+  (should (= (length bloom-design-preset-ids) 5))
+  (dolist (id bloom-design-preset-ids)
     (should (jetpacs-design-profile-get id)))
-  (should (equal (plist-get (jetpacs-design-profile-get "grove.light") :label)
+  (should (equal (plist-get (jetpacs-design-profile-get "bloom.light") :label)
+                 "Bloom Light"))
+  (should (equal (plist-get (jetpacs-design-profile-get "bloom.grove-light") :label)
                  "Grove Light"))
-  (grove-design-unregister)
-  (dolist (id grove-design-preset-ids)
+  (bloom-design-unregister)
+  (dolist (id bloom-design-preset-ids)
     (should-not (jetpacs-design-profile-get id)))
-  (grove-design-register))
+  (bloom-design-register))
 
-(ert-deftest grove-design-reader-rebinds-body-text-to-serif-prose ()
+(ert-deftest bloom-design-reader-rebinds-body-text-to-serif-prose ()
   "The document screen nests a scope that rebinds only `text.body'."
-  (let ((grove-document--current nil))
+  (let ((bloom-document--current nil))
     (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
                (lambda (extension target)
                  (and (equal extension "jetpacs.design") (eq target :app)))))
-      (let* ((screen (grove-document-presented-screen nil))
+      (let* ((screen (bloom-document-presented-screen nil))
              (scaffold (aref (plist-get screen :children) 0))
              (body (plist-get scaffold :body))
              (json (jetpacs-node->canonical-json screen)))
@@ -315,13 +322,13 @@
         (should (string-search "typography.reading-body" json))
         (should (jetpacs-check-profile screen 'app))
         ;; Only the document kind gets the nested prose scope.
-        (let ((settings (grove-navigation-presented-settings-screen nil)))
+        (let ((settings (bloom-navigation-presented-settings-screen nil)))
           (should-not (equal (plist-get (plist-get (aref (plist-get settings :children) 0)
                                                    :body)
                                         :t)
                              "jetpacs.design_scope"))))
       ;; A portable profile without reading prose leaves the body untouched.
-      (let* ((id "grove-test-no-prose")
+      (let* ((id "bloom-test-no-prose")
              (profile (jetpacs-design-make-profile
                        id "No prose" :tokens nil :typography nil
                        :styles nil :motions nil :component-styles nil)))
@@ -329,27 +336,27 @@
             (progn
               (jetpacs-design-register-profile profile)
               (let* ((jetpacs-design-active-profile-id id)
-                     (screen (grove-document-presented-screen nil))
+                     (screen (bloom-document-presented-screen nil))
                      (scaffold (aref (plist-get screen :children) 0)))
                 (should-not (equal (plist-get (plist-get scaffold :body) :t)
                                    "jetpacs.design_scope"))))
           (jetpacs-design-unregister-profile id))))))
 
-(ert-deftest grove-design-covers-every-app-screen-and-preserves-fallbacks ()
-  "All seven Grove screen kinds share the runtime gate and exact fallback."
-  (let ((grove-navigation--notebook-id nil)
-        (grove-document--current nil)
-        (grove-document--planning nil)
+(ert-deftest bloom-design-covers-every-app-screen-and-preserves-fallbacks ()
+  "All seven Bloom screen kinds share the runtime gate and exact fallback."
+  (let ((bloom-navigation--notebook-id nil)
+        (bloom-document--current nil)
+        (bloom-document--planning nil)
         (pairs
-         '((grove-navigation-outline-screen
-            grove-navigation-presented-outline-screen)
-           (grove-navigation-search-screen
-            grove-navigation-presented-search-screen)
-           (grove-navigation-settings-screen
-            grove-navigation-presented-settings-screen)
-           (grove-document-screen grove-document-presented-screen)
-           (grove-document-planning-screen
-            grove-document-presented-planning-screen))))
+         '((bloom-navigation-outline-screen
+            bloom-navigation-presented-outline-screen)
+           (bloom-navigation-search-screen
+            bloom-navigation-presented-search-screen)
+           (bloom-navigation-settings-screen
+            bloom-navigation-presented-settings-screen)
+           (bloom-document-screen bloom-document-presented-screen)
+           (bloom-document-planning-screen
+            bloom-document-presented-planning-screen))))
     (dolist (pair pairs)
       (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
                  (lambda (&rest _) nil)))
@@ -363,9 +370,9 @@
           (should (equal (plist-get screen :t) "jetpacs.design_scope"))
           (should (jetpacs-check-profile screen 'app)))))))
 
-(ert-deftest grove-design-accepts-a-portable-active-profile ()
-  "A global profile need not define Grove-private style names."
-  (let* ((id "grove-test-portable")
+(ert-deftest bloom-design-accepts-a-portable-active-profile ()
+  "A global profile need not define Bloom-private style names."
+  (let* ((id "bloom-test-portable")
          (profile
           (jetpacs-design-make-profile
            id "Portable test"
@@ -386,30 +393,30 @@
                        (lambda (&rest _) t)))
               (let ((json
                      (jetpacs-node->canonical-json
-                      (grove-navigation-presented-settings-screen nil))))
+                      (bloom-navigation-presented-settings-screen nil))))
                 (should (string-search "portable.action" json))
                 (should-not (string-search "radius.panel" json))
                 (should-not (string-search "jetpacs.pressable" json))
                 (should (string-search "\"t\":\"button\"" json))))))
       (jetpacs-design-unregister-profile id))))
 
-(ert-deftest grove-agenda-semantic-tabs-inject-the-selected-value ()
+(ert-deftest bloom-agenda-semantic-tabs-inject-the-selected-value ()
   "The design Tabs event uses the same Agenda action as Material buttons."
-  (let ((grove-agenda-range "today") deferred)
+  (let ((bloom-agenda-range "today") deferred)
     (cl-letf (((symbol-function 'jetpacs-app-defer-refresh)
                (lambda (_params) (setq deferred t))))
-      (should (eq (grove--on-select-range
-                   '(:value "upcoming") '(:surface "app:grove"))
+      (should (eq (bloom--on-select-range
+                   '(:value "upcoming") '(:surface "app:bloom"))
                   'accepted))
-      (should (equal grove-agenda-range "upcoming"))
+      (should (equal bloom-agenda-range "upcoming"))
       (should deferred))))
 
-(ert-deftest grove-agenda-row-uses-reveal-first-deep-commit-swipe ()
+(ert-deftest bloom-agenda-row-uses-reveal-first-deep-commit-swipe ()
   "A normal swipe reveals two actions; only the deeper gesture commits Done."
   (cl-letf (((symbol-function 'jetpacs-feature-advertised-p)
              (lambda (&rest _) t)))
-    (let* ((item (car (plist-get (grove-test--snapshot) :items)))
-           (row (grove-ui-agenda-row item nil t t))
+    (let* ((item (car (plist-get (bloom-test--snapshot) :items)))
+           (row (bloom-ui-agenda-row item nil t t))
            (side (plist-get row :swipe_end))
            (actions (plist-get side :actions)))
       (should (eq (plist-get side :commit) t))
@@ -417,43 +424,43 @@
       (should (equal (plist-get (aref actions 0) :label) "Done"))
       (should (equal (plist-get
                       (plist-get (aref actions 0) :on_trigger) :action)
-                     "grove.agenda.done"))
+                     "bloom.agenda.done"))
       (should (equal (plist-get (aref actions 1) :label) "Open")))))
 
-(ert-deftest grove-rows-use-the-list-item-node-only-where-it-is-drawable ()
+(ert-deftest bloom-rows-use-the-list-item-node-only-where-it-is-drawable ()
   "App rows take the Jetpacs row; widget rows keep the canonical one.
 The node is declared for the app target only, so the widget projection
 must degrade even offline, where the profile question has no answer."
-  (let ((grove-org--snapshot (grove-test--snapshot))
-        (grove-library--snapshot (grove-test--library-snapshot))
-        (grove-agenda-range "today"))
-    (let ((app (jetpacs-node->canonical-json (grove-ui-screen nil)))
+  (let ((bloom-org--snapshot (bloom-test--snapshot))
+        (bloom-library--snapshot (bloom-test--library-snapshot))
+        (bloom-agenda-range "today"))
+    (let ((app (jetpacs-node->canonical-json (bloom-ui-screen nil)))
           (widget (jetpacs-node->canonical-json
-                   (grove-widgets-agenda-surface))))
+                   (bloom-widgets-agenda-surface))))
       (should (string-search "jetpacs.list_item" app))
       (should-not (string-search "jetpacs.list_item" widget))
       ;; Both still carry the row's identity and its durable action.
-      (should (string-search "grove-item-a" app))
-      (should (string-search "grove-item-a" widget)))
+      (should (string-search "bloom-item-a" app))
+      (should (string-search "bloom-item-a" widget)))
     (should (string-search
              "jetpacs.list_item"
              (jetpacs-node->canonical-json
-              (grove-navigation-notebooks-screen nil))))))
+              (bloom-navigation-notebooks-screen nil))))))
 
-(ert-deftest grove-menus-are-named-and-bound-to-the-popup-face ()
-  "Every Grove menu announces itself, and the menu slots reach a profile.
+(ert-deftest bloom-menus-are-named-and-bound-to-the-popup-face ()
+  "Every Bloom menu announces itself, and the menu slots reach a profile.
 
 An un-annotated menu falls back to its icon identifier for an accessible
 name, which announces as \"more_vert\"; the authored name is what stops
 that.  The bindings are asserted separately because a menu drawn by the
 Foundation renderer takes its whole appearance from them."
-  (let ((menus (list (grove-structure-menu
+  (let ((menus (list (bloom-structure-menu
                       "nb" '(:id "heading-1" :revision 3))
-                     (grove-navigation--notebook-menu
-                      (car (plist-get (grove-test--library-snapshot)
+                     (bloom-navigation--notebook-menu
+                      (car (plist-get (bloom-test--library-snapshot)
                                       :notebooks)))
-                     (plist-get (grove-views-row
-                                 '(:id "v1" :label "Today" :source "grove"))
+                     (plist-get (bloom-views-row
+                                 '(:id "v1" :label "Today" :source "bloom"))
                                 :trailing))))
     (dolist (menu menus)
       (should (equal (plist-get menu :t) "menu"))
@@ -463,151 +470,151 @@ Foundation renderer takes its whole appearance from them."
   (dolist (slot '("menu.trigger" "menu.container" "menu.item"
                   "menu.item-label" "menu.item-supporting"
                   "menu.group-label"))
-    (should (assoc slot grove-design-component-styles)))
+    (should (assoc slot bloom-design-component-styles)))
   ;; The popup is a surface, not a row: it must not inherit the flat row.
-  (should (equal (cdr (assoc "menu.container" grove-design-component-styles))
-                 '("grove.popup")))
+  (should (equal (cdr (assoc "menu.container" bloom-design-component-styles))
+                 '("bloom.popup")))
   ;; Menu labels match the app's own DropdownMenuItem scale.
-  (should (equal (cdr (assoc "menu.item-label" grove-design-component-styles))
+  (should (equal (cdr (assoc "menu.item-label" bloom-design-component-styles))
                  '("typography.label-large"))))
 
-(ert-deftest grove-widgets-are-live-profile-valid-snapshot-projections ()
+(ert-deftest bloom-widgets-are-live-profile-valid-snapshot-projections ()
   "Capture and Agenda widgets stay inside the negotiated Glance vocabulary."
-  (let ((grove-org--snapshot (grove-test--snapshot)))
-    (should (jetpacs-check-profile (grove-widgets-capture-surface) 'widget))
-    (should (jetpacs-check-profile (grove-widgets-agenda-surface) 'widget))
+  (let ((bloom-org--snapshot (bloom-test--snapshot)))
+    (should (jetpacs-check-profile (bloom-widgets-capture-surface) 'widget))
+    (should (jetpacs-check-profile (bloom-widgets-agenda-surface) 'widget))
     (should (jetpacs-check-profile
-             (grove-widgets-agenda-stale-surface) 'widget))
+             (bloom-widgets-agenda-stale-surface) 'widget))
     ;; Rich swipe is an application-only interaction.  Glance rows expose
     ;; the same durable actions through their tap targets without advertising
     ;; a renderer node the widget profile cannot honor.
-    (dolist (surface (list (grove-widgets-agenda-surface)
-                           (grove-widgets-agenda-stale-surface)))
+    (dolist (surface (list (bloom-widgets-agenda-surface)
+                           (bloom-widgets-agenda-stale-surface)))
       (should-not
        (string-search "\"swipe_end\""
                       (jetpacs-node->canonical-json surface))))
-    (let* ((capture (grove-widgets-capture-surface))
+    (let* ((capture (bloom-widgets-capture-surface))
            (tap (plist-get (plist-get capture :body) :on_tap)))
       (should (equal (plist-get tap :action) "org.capture.show"))
       ;; Hermetic tests have no live grant, so durable actions must queue.
       (should (equal (plist-get tap :when_offline) "queue"))
       (should (= (plist-get tap :ttl_s) 86400)))))
 
-(ert-deftest grove-durable-actions-wake-only-when-granted ()
-  "Grove remains profile-valid when a Companion cannot wake Emacs."
+(ert-deftest bloom-durable-actions-wake-only-when-granted ()
+  "Bloom remains profile-valid when a Companion cannot wake Emacs."
   (cl-letf (((symbol-function 'jetpacs-granted-p)
              (lambda (&rest _) nil)))
-    (let ((action (grove-navigation--notebook-action "notebook-a")))
+    (let ((action (bloom-navigation--notebook-action "notebook-a")))
       (should (equal (plist-get action :when_offline) "queue"))
       (should-not (jetpacs-gate-descriptor-policy action))))
   (cl-letf (((symbol-function 'jetpacs-granted-p)
              (lambda (capability &optional _client)
                (equal capability "offline.wake"))))
-    (let ((action (grove-navigation--notebook-action "notebook-a")))
+    (let ((action (bloom-navigation--notebook-action "notebook-a")))
       (should (equal (plist-get action :when_offline) "wake"))
       (should-not (jetpacs-gate-descriptor-policy action)))))
 
-(ert-deftest grove-item-actions-resolve-current-opaque-identities ()
+(ert-deftest bloom-item-actions-resolve-current-opaque-identities ()
   "Open and Done resolve private refs in Emacs and reject vanished rows."
-  (let* ((ref (grove-test--ref "/tmp/work.org" 1
+  (let* ((ref (bloom-test--ref "/tmp/work.org" 1
                                "Write project brief" "task-1"))
          opened toggled notified refreshed continuation)
-    (cl-letf (((symbol-function 'grove-org-ref-for-id)
-               (lambda (id) (and (equal id "grove-item-a") ref)))
-              ((symbol-function 'grove-library--notebook-id)
-               (lambda (_file) "grove-notebook-a"))
-              ((symbol-function 'grove-library--heading-id)
-               (lambda (_ref) "grove-heading-a"))
-              ((symbol-function 'grove-library-resolve-notebook)
+    (cl-letf (((symbol-function 'bloom-org-ref-for-id)
+               (lambda (id) (and (equal id "bloom-item-a") ref)))
+              ((symbol-function 'bloom-library--notebook-id)
+               (lambda (_file) "bloom-notebook-a"))
+              ((symbol-function 'bloom-library--heading-id)
+               (lambda (_ref) "bloom-heading-a"))
+              ((symbol-function 'bloom-library-resolve-notebook)
                (lambda (_id) "/tmp/work.org"))
-              ((symbol-function 'grove-document-open)
+              ((symbol-function 'bloom-document-open)
                (lambda (&rest args) (setq opened args) 'accepted))
               ((symbol-function 'jetpacs-flow-continue)
                (lambda (fn) (setq continuation fn)))
               ((symbol-function 'ebp-org-toggle-todo)
                (lambda (&rest args) (setq toggled args)))
-              ((symbol-function 'grove-org-refresh)
+              ((symbol-function 'bloom-org-refresh)
                (lambda (&optional _now) (setq refreshed t)))
               ((symbol-function 'jetpacs-shell-notify)
                (lambda (&rest args) (setq notified args))))
-      (should (eq (grove--on-item-open
-                   '(:item-id "missing") '(:surface "widget:grove.agenda"))
+      (should (eq (bloom--on-item-open
+                   '(:item-id "missing") '(:surface "widget:bloom.agenda"))
                   'stale))
-      (should (eq (grove--on-item-open
-                   '(:item-id "grove-item-a")
-                   '(:surface "widget:grove.agenda"))
+      (should (eq (bloom--on-item-open
+                   '(:item-id "bloom-item-a")
+                   '(:surface "widget:bloom.agenda"))
                   'accepted))
       (should
        (equal opened
-              '("grove-notebook-a" "grove-heading-a"
-                (:surface "widget:grove.agenda"))))
+              '("bloom-notebook-a" "bloom-heading-a"
+                (:surface "widget:bloom.agenda"))))
       (should-not continuation)
-      (should (eq (grove--on-item-done
-                   '(:item-id "grove-item-a")
-                   '(:surface "app:grove"))
+      (should (eq (bloom--on-item-done
+                   '(:item-id "bloom-item-a")
+                   '(:surface "app:bloom"))
                   'accepted))
-      (should (equal toggled (list ref 'grove 'done)))
+      (should (equal toggled (list ref 'bloom 'done)))
       (should refreshed)
-      (should (equal notified '("Completed" "app:grove"))))))
+      (should (equal notified '("Completed" "app:bloom"))))))
 
-(ert-deftest grove-registration-is-symmetric ()
+(ert-deftest bloom-registration-is-symmetric ()
   "Register and unregister cover the app, actions, hooks, and widget roots."
   (unwind-protect
       (progn
-        (grove-register)
-        (should (assoc grove-owner jetpacs-apps--registry))
-        (dolist (name (append '("grove.agenda.refresh" "grove.agenda.select"
-                                "grove.agenda.item.open" "grove.agenda.done")
-                              grove-navigation--verbs
-                              grove-structure--verbs
-                              grove-views--verbs
-                              grove-document--verbs
-                              grove-reminders--verbs))
+        (bloom-register)
+        (should (assoc bloom-owner jetpacs-apps--registry))
+        (dolist (name (append '("bloom.agenda.refresh" "bloom.agenda.select"
+                                "bloom.agenda.item.open" "bloom.agenda.done")
+                              bloom-navigation--verbs
+                              bloom-structure--verbs
+                              bloom-views--verbs
+                              bloom-document--verbs
+                              bloom-reminders--verbs))
           (should (gethash name jetpacs-action-handlers)))
-        (should (assoc grove-capture-widget-surface jetpacs-shell--roots))
-        (should (assoc grove-agenda-widget-surface jetpacs-shell--roots))
-        (should (jetpacs--owned-names "hook" grove-owner))
-        (grove-unregister)
-        (should-not (jetpacs--owned-names "hook" grove-owner))
-        (dolist (entry '((after-save-hook . grove-org--after-save)
-                         (grove-org-after-refresh-hook . grove--schedule-pushes)
-                         (grove-org-after-refresh-hook
-                          . grove-reminders-schedule-sync)
+        (should (assoc bloom-capture-widget-surface jetpacs-shell--roots))
+        (should (assoc bloom-agenda-widget-surface jetpacs-shell--roots))
+        (should (jetpacs--owned-names "hook" bloom-owner))
+        (bloom-unregister)
+        (should-not (jetpacs--owned-names "hook" bloom-owner))
+        (dolist (entry '((after-save-hook . bloom-org--after-save)
+                         (bloom-org-after-refresh-hook . bloom--schedule-pushes)
+                         (bloom-org-after-refresh-hook
+                          . bloom-reminders-schedule-sync)
                          (jetpacs-shell-after-push-hook
-                          . grove-reminders-schedule-sync)))
+                          . bloom-reminders-schedule-sync)))
           (should-not (memq (cdr entry) (default-value (car entry)))))
-        (should-not (assoc grove-owner jetpacs-apps--registry))
-        (should-not (assoc grove-capture-widget-surface jetpacs-shell--roots))
-        (should-not (assoc grove-agenda-widget-surface jetpacs-shell--roots))
-        (dolist (name (append '("grove.agenda.refresh" "grove.agenda.select"
-                                "grove.agenda.item.open" "grove.agenda.done")
-                              grove-navigation--verbs
-                              grove-structure--verbs
-                              grove-views--verbs
-                              grove-document--verbs
-                              grove-reminders--verbs))
+        (should-not (assoc bloom-owner jetpacs-apps--registry))
+        (should-not (assoc bloom-capture-widget-surface jetpacs-shell--roots))
+        (should-not (assoc bloom-agenda-widget-surface jetpacs-shell--roots))
+        (dolist (name (append '("bloom.agenda.refresh" "bloom.agenda.select"
+                                "bloom.agenda.item.open" "bloom.agenda.done")
+                              bloom-navigation--verbs
+                              bloom-structure--verbs
+                              bloom-views--verbs
+                              bloom-document--verbs
+                              bloom-reminders--verbs))
           (should-not (gethash name jetpacs-action-handlers))))
-    (grove-register)))
+    (bloom-register)))
 
-(ert-deftest grove-reminders-project-opaque-ordered-elisp-actions ()
-  "Grove authors Complete then Reschedule without leaking an Org path."
+(ert-deftest bloom-reminders-project-opaque-ordered-elisp-actions ()
+  "Bloom authors Complete then Reschedule without leaking an Org path."
   (let* ((private "/tmp/private-vault/work plan.org")
          (candidate
-          (list :ref (grove-test--ref private 42 "Ship it" "task-1")
+          (list :ref (bloom-test--ref private 42 "Ship it" "task-1")
                 :headline "Ship it" :type "scheduled" :time "14:30"
                 :event_at_ms 1788294600000 :at_ms 1788293700000
                 :identity (concat private "|task-1|2026-09-02T14:30")))
-         (grove-reminder-lead-minutes 15))
+         (bloom-reminder-lead-minutes 15))
     (cl-letf (((symbol-function 'jetpacs-granted-p)
                (lambda (capability &optional _client)
                  (member capability '("reminders.actions" "offline.wake"))))
               ((symbol-function 'jetpacs-org-mode-reminder-candidates)
                (lambda (&rest _) (list candidate)))
-              ((symbol-function 'grove-library-identify-heading)
+              ((symbol-function 'bloom-library-identify-heading)
                (lambda (_ref)
-                 '(:notebook-id "grove-notebook-a"
-                   :heading-id "grove-heading-a"))))
-      (let* ((reminder (car (grove-reminders--projection)))
+                 '(:notebook-id "bloom-notebook-a"
+                   :heading-id "bloom-heading-a"))))
+      (let* ((reminder (car (bloom-reminders--projection)))
              (actions (plist-get reminder :actions))
              (complete (aref actions 0))
              (reschedule (aref actions 1))
@@ -617,18 +624,18 @@ Foundation renderer takes its whole appearance from them."
         (should (equal (plist-get reschedule :label) "Reschedule"))
         (should (equal
                  (plist-get (plist-get reschedule :on_tap) :open_surface)
-                 grove-app-surface))
+                 bloom-app-surface))
         (should (equal
                  (plist-get (plist-get (plist-get reschedule :on_tap) :args)
                             :focus)
                  "scheduled"))
         (should (equal (plist-get (plist-get complete :on_tap) :action)
-                       "grove.reminder.complete"))
+                       "bloom.reminder.complete"))
         (should-not (plist-get complete :dismiss))
         (should-not (string-search private json))
         (should-not (string-search "work plan.org" json))))))
 
-(ert-deftest grove-reminders-degrade-without-interaction-capability ()
+(ert-deftest bloom-reminders-degrade-without-interaction-capability ()
   "An older peer receives the basic reminder schema and no app launch adjunct."
   (let ((candidate
          '(:ref (:file "/tmp/work.org" :pos 1 :headline "Task")
@@ -638,90 +645,90 @@ Foundation renderer takes its whole appearance from them."
                (lambda (_capability &optional _client) nil))
               ((symbol-function 'jetpacs-org-mode-reminder-candidates)
                (lambda (&rest _) (list candidate)))
-              ((symbol-function 'grove-library-identify-heading)
+              ((symbol-function 'bloom-library-identify-heading)
                (lambda (_ref)
-                 '(:notebook-id "grove-notebook-a"
-                   :heading-id "grove-heading-a"))))
-      (let* ((reminder (car (grove-reminders--projection)))
+                 '(:notebook-id "bloom-notebook-a"
+                   :heading-id "bloom-heading-a"))))
+      (let* ((reminder (car (bloom-reminders--projection)))
              (tap (plist-get reminder :on_tap)))
         (should-not (plist-member reminder :actions))
         (should-not (plist-member tap :open_surface))
         (should (equal (plist-get tap :when_offline) "queue"))))))
 
-(ert-deftest grove-reminder-handlers-own-org-semantics ()
-  "Complete mutates Org; Reschedule reuses Grove's normal planning canvas."
+(ert-deftest bloom-reminder-handlers-own-org-semantics ()
+  "Complete mutates Org; Reschedule reuses Bloom's normal planning canvas."
   (let ((ref '(:file "/tmp/work.org" :pos 1 :headline "Task"))
         toggled refreshed planned)
-    (cl-letf (((symbol-function 'grove-library-resolve-heading)
+    (cl-letf (((symbol-function 'bloom-library-resolve-heading)
                (lambda (notebook heading)
-                 (and (equal notebook "grove-notebook-a")
-                      (equal heading "grove-heading-a") ref)))
+                 (and (equal notebook "bloom-notebook-a")
+                      (equal heading "bloom-heading-a") ref)))
               ((symbol-function 'ebp-org-toggle-todo)
                (lambda (&rest args) (setq toggled args)))
-              ((symbol-function 'grove-library-reset-projections) #'ignore)
-              ((symbol-function 'grove-library-refresh) #'ignore)
-              ((symbol-function 'grove-org-refresh)
+              ((symbol-function 'bloom-library-reset-projections) #'ignore)
+              ((symbol-function 'bloom-library-refresh) #'ignore)
+              ((symbol-function 'bloom-org-refresh)
                (lambda (&optional _now) (setq refreshed t)))
-              ((symbol-function 'grove-document-open-planning)
+              ((symbol-function 'bloom-document-open-planning)
                (lambda (&rest args) (setq planned args) 'accepted)))
-      (let ((args '(:owner "grove"
-                    :reminder_id "grove-reminder-1234"
-                    :notebook-id "grove-notebook-a"
-                    :heading-id "grove-heading-a"
+      (let ((args '(:owner "bloom"
+                    :reminder_id "bloom-reminder-1234"
+                    :notebook-id "bloom-notebook-a"
+                    :heading-id "bloom-heading-a"
                     :focus "deadline")))
-        (should (eq (grove-reminders--on-complete args nil) 'accepted))
-        (should (equal toggled (list ref 'grove 'done)))
+        (should (eq (bloom-reminders--on-complete args nil) 'accepted))
+        (should (equal toggled (list ref 'bloom 'done)))
         (should refreshed)
-        (should (eq (grove-reminders--on-reschedule args nil) 'accepted))
+        (should (eq (bloom-reminders--on-reschedule args nil) 'accepted))
         (should (equal planned
-                       '("grove-notebook-a" "grove-heading-a" nil
+                       '("bloom-notebook-a" "bloom-heading-a" nil
                          "deadline")))
         (should (eq
-                 (grove-reminders--on-complete
+                 (bloom-reminders--on-complete
                   (plist-put (copy-sequence args) :owner "other") nil)
                  'stale))))))
 
-(ert-deftest grove-reminder-sync-preserves-confirmed-set-on-scan-failure ()
+(ert-deftest bloom-reminder-sync-preserves-confirmed-set-on-scan-failure ()
   "A failed Org scan never becomes authority to clear Room's durable set."
-  (let ((grove-reminders-enabled t)
-        (grove-reminders--last-reminders '((:id "grove-reminder-old")))
+  (let ((bloom-reminders-enabled t)
+        (bloom-reminders--last-reminders '((:id "bloom-reminder-old")))
         (calls 0))
     (cl-letf (((symbol-function 'jetpacs-connected-p) (lambda () t))
               ((symbol-function 'jetpacs-granted-p) (lambda (&rest _) t))
               ((symbol-function 'jetpacs-error-label) (lambda (_) "error"))
-              ((symbol-function 'grove-reminders--projection)
+              ((symbol-function 'bloom-reminders--projection)
                (lambda () (error "private path")))
               ((symbol-function 'jetpacs-reminders-set)
                (lambda (&rest _) (cl-incf calls))))
-      (grove-reminders--sync-now)
+      (bloom-reminders--sync-now)
       (should (zerop calls))
-      (should (equal grove-reminders--last-reminders
-                     '((:id "grove-reminder-old")))))))
+      (should (equal bloom-reminders--last-reminders
+                     '((:id "bloom-reminder-old")))))))
 
-(ert-deftest grove-library-refresh-builds-a-private-nested-tree ()
+(ert-deftest bloom-library-refresh-builds-a-private-nested-tree ()
   "Nested notebook paths become opaque, restart-rebuildable tree records."
-  (should (equal (grove-library--notebook-filename "journal")
+  (should (equal (bloom-library--notebook-filename "journal")
                  "journal.org"))
-  (should-error (grove-library--notebook-filename "../escape")
+  (should-error (bloom-library--notebook-filename "../escape")
                 :type 'user-error)
-  (should-error (grove-library--notebook-filename "bad\nname")
+  (should-error (bloom-library--notebook-filename "bad\nname")
                 :type 'user-error)
-  (let* ((root (make-temp-file "grove-library" t))
+  (let* ((root (make-temp-file "bloom-library" t))
          (projects (expand-file-name "projects" root))
          (client (expand-file-name "client" projects))
          (first (expand-file-name "inbox.org" root))
          (second (expand-file-name "work.org" client))
          (org-directory root)
          (ebp-org-roots (list root))
-         (grove-library--snapshot
+         (bloom-library--snapshot
           '(:notebooks nil :folders nil :total-count 0 :truncated nil
                        :error nil))
-         (grove-library--notebook-paths (make-hash-table :test #'equal))
-         (grove-library--folder-paths (make-hash-table :test #'equal))
-         (grove-library--heading-refs (make-hash-table :test #'equal))
-         (grove-library--outlines (make-hash-table :test #'equal))
-         (grove-library--documents (make-hash-table :test #'equal))
-         (grove-library-favorite-ids nil))
+         (bloom-library--notebook-paths (make-hash-table :test #'equal))
+         (bloom-library--folder-paths (make-hash-table :test #'equal))
+         (bloom-library--heading-refs (make-hash-table :test #'equal))
+         (bloom-library--outlines (make-hash-table :test #'equal))
+         (bloom-library--documents (make-hash-table :test #'equal))
+         (bloom-library-favorite-ids nil))
     (unwind-protect
         (progn
           (make-directory client t)
@@ -729,8 +736,8 @@ Foundation renderer takes its whole appearance from them."
           (write-region "* Work\n" nil second nil 'silent)
           (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-scope)
                      (lambda () (list second first second))))
-            (should (grove-library-refresh))
-            (let* ((snapshot (grove-library-snapshot))
+            (should (bloom-library-refresh))
+            (let* ((snapshot (bloom-library-snapshot))
                    (notebooks (plist-get snapshot :notebooks))
                    (folders (plist-get snapshot :folders))
                    (first-id (plist-get
@@ -756,19 +763,19 @@ Foundation renderer takes its whole appearance from them."
               (should-not
                (string-search root
                               (jetpacs-node->canonical-json
-                               (grove-navigation-notebooks-screen nil))))
+                               (bloom-navigation-notebooks-screen nil))))
               ;; Simulate Emacs process-state loss.  The opaque id resolves
               ;; by rebuilding the canonical scope, not by trusting wire data.
-              (clrhash grove-library--notebook-paths)
+              (clrhash bloom-library--notebook-paths)
               (should (file-equal-p
-                       (grove-library-resolve-notebook first-id) first))
+                       (bloom-library-resolve-notebook first-id) first))
               (let ((ids (mapcar (lambda (row) (plist-get row :id))
                                  notebooks)))
-                (should (grove-library-refresh))
+                (should (bloom-library-refresh))
                 (should (equal ids
                                (mapcar
                                 (lambda (row) (plist-get row :id))
-                                (plist-get (grove-library-snapshot)
+                                (plist-get (bloom-library-snapshot)
                                            :notebooks))))))))
       (dolist (buffer (buffer-list))
         (when-let* ((file (buffer-local-value 'buffer-file-name buffer))
@@ -777,21 +784,21 @@ Foundation renderer takes its whole appearance from them."
           (kill-buffer buffer)))
       (delete-directory root t))))
 
-(ert-deftest grove-outline-preserves-hierarchy-and-rebuilds-heading-refs ()
+(ert-deftest bloom-outline-preserves-hierarchy-and-rebuilds-heading-refs ()
   "The native outline is nested and opaque heading ids survive state loss."
-  (let* ((root (make-temp-file "grove-outline" t))
+  (let* ((root (make-temp-file "bloom-outline" t))
          (file (expand-file-name "garden.org" root))
          (org-directory root)
          (org-agenda-files (list file))
          (ebp-org-roots (list root))
-         (grove-library--snapshot
+         (bloom-library--snapshot
           '(:notebooks nil :folders nil :total-count 0 :truncated nil
                        :error nil))
-         (grove-library--notebook-paths (make-hash-table :test #'equal))
-         (grove-library--folder-paths (make-hash-table :test #'equal))
-         (grove-library--heading-refs (make-hash-table :test #'equal))
-         (grove-library--outlines (make-hash-table :test #'equal))
-         (grove-library--documents (make-hash-table :test #'equal)))
+         (bloom-library--notebook-paths (make-hash-table :test #'equal))
+         (bloom-library--folder-paths (make-hash-table :test #'equal))
+         (bloom-library--heading-refs (make-hash-table :test #'equal))
+         (bloom-library--outlines (make-hash-table :test #'equal))
+         (bloom-library--documents (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
           (write-region
@@ -799,12 +806,12 @@ Foundation renderer takes its whole appearance from them."
            nil file nil 'silent)
           (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-scope)
                      (lambda () (list file))))
-            (should (grove-library-refresh))
+            (should (bloom-library-refresh))
             (let* ((notebook-id
                     (plist-get
-                     (car (plist-get (grove-library-snapshot) :notebooks))
+                     (car (plist-get (bloom-library-snapshot) :notebooks))
                      :id))
-                   (outline (grove-library-outline-refresh notebook-id))
+                   (outline (bloom-library-outline-refresh notebook-id))
                    (records (plist-get outline :records))
                    (parent (cl-find "Parent" records
                                     :key (lambda (row)
@@ -819,50 +826,50 @@ Foundation renderer takes its whole appearance from them."
                              (plist-get parent :id)))
               (should (string-search "short preface"
                                      (plist-get outline :preface)))
-              (clrhash grove-library--heading-refs)
-              (clrhash grove-library--outlines)
+              (clrhash bloom-library--heading-refs)
+              (clrhash bloom-library--outlines)
               (should (equal
-                       (plist-get (grove-library-resolve-heading
+                       (plist-get (bloom-library-resolve-heading
                                    notebook-id child-id)
                                   :headline)
                        "Child"))
-              (let ((grove-navigation--notebook-id notebook-id))
+              (let ((bloom-navigation--notebook-id notebook-id))
                 (should-not
                  (string-search root
                                 (jetpacs-node->canonical-json
-                                 (grove-navigation-outline-screen nil)))))
-              (let ((grove-document--current
+                                 (bloom-navigation-outline-screen nil)))))
+              (let ((bloom-document--current
                      (list :notebook-id notebook-id :heading-id child-id))
-                    (grove-document--modes (make-hash-table :test #'equal)))
-                (let ((reader (grove-document-screen nil)))
+                    (bloom-document--modes (make-hash-table :test #'equal)))
+                (let ((reader (bloom-document-screen nil)))
                   (should (jetpacs-check-profile reader 'app))
                   (should-not
                    (string-search root
                                   (jetpacs-node->canonical-json reader))))
-                (puthash (grove-document--key notebook-id child-id)
-                         'edit grove-document--modes)
+                (puthash (bloom-document--key notebook-id child-id)
+                         'edit bloom-document--modes)
                 (should (jetpacs-check-profile
-                         (grove-document-screen nil) 'app))))))
+                         (bloom-document-screen nil) 'app))))))
       (when-let* ((buffer (find-buffer-visiting file)))
         (with-current-buffer buffer (set-buffer-modified-p nil))
         (kill-buffer buffer))
       (delete-directory root t))))
 
-(ert-deftest grove-native-search-retains-results-on-expression-error ()
+(ert-deftest bloom-native-search-retains-results-on-expression-error ()
   "Search projects native Org rows and an invalid query cannot erase results."
-  (let* ((root (make-temp-file "grove-search" t))
+  (let* ((root (make-temp-file "bloom-search" t))
          (file (expand-file-name "notes.org" root))
-         (ref (grove-test--ref file 1 "Alpha" "alpha-id"))
-         (grove-library--snapshot
+         (ref (bloom-test--ref file 1 "Alpha" "alpha-id"))
+         (bloom-library--snapshot
           '(:notebooks nil :folders nil :total-count 0 :truncated nil
                        :error nil))
-         (grove-library--search-snapshot
+         (bloom-library--search-snapshot
           '(:query "" :mode "text" :results nil :error nil))
-         (grove-library--notebook-paths (make-hash-table :test #'equal))
-         (grove-library--folder-paths (make-hash-table :test #'equal))
-         (grove-library--heading-refs (make-hash-table :test #'equal))
-         (grove-library--outlines (make-hash-table :test #'equal))
-         (grove-library--documents (make-hash-table :test #'equal))
+         (bloom-library--notebook-paths (make-hash-table :test #'equal))
+         (bloom-library--folder-paths (make-hash-table :test #'equal))
+         (bloom-library--heading-refs (make-hash-table :test #'equal))
+         (bloom-library--outlines (make-hash-table :test #'equal))
+         (bloom-library--documents (make-hash-table :test #'equal))
          (org-directory root))
     (unwind-protect
         (progn
@@ -875,19 +882,19 @@ Foundation renderer takes its whole appearance from them."
                        `(((headline . "Alpha") (todo . "TODO")
                           (tags . ["work"]) (summary . "notes: Alpha")
                           (ref . ,ref))))))
-            (should (grove-library-refresh))
-            (should (grove-library-search "needle" "text"))
-            (let* ((good (grove-library-search-snapshot))
+            (should (bloom-library-refresh))
+            (should (bloom-library-search "needle" "text"))
+            (let* ((good (bloom-library-search-snapshot))
                    (results (plist-get good :results)))
               (should (= (length results) 1))
               (should-not
                (string-search root
                               (jetpacs-node->canonical-json
-                               (grove-navigation-search-screen nil))))
+                               (bloom-navigation-search-screen nil))))
               (cl-letf (((symbol-function 'jetpacs-org-mode-search-items)
                          (lambda (&rest _) (error "bad private expression"))))
-                (should-not (grove-library-search "bad" "match"))
-                (let ((failed (grove-library-search-snapshot)))
+                (should-not (bloom-library-search "bad" "match"))
+                (let ((failed (bloom-library-search-snapshot)))
                   (should (equal (plist-get failed :results) results))
                   (should (equal (plist-get failed :query) "bad"))
                   (should (equal (plist-get failed :mode) "match"))
@@ -895,26 +902,26 @@ Foundation renderer takes its whole appearance from them."
                                  "Invalid search expression")))))))
       (delete-directory root t))))
 
-(ert-deftest grove-saved-views-combine-customize-and-read-only-emacs-views ()
+(ert-deftest bloom-saved-views-combine-customize-and-read-only-emacs-views ()
   "Hybrid view rows stay bounded and custom agenda internals remain private."
-  (let ((grove-saved-views '(("Needles" "text" "private phone query")))
-        (grove-saved-view-limit 8)
-        (grove-library--search-snapshot
+  (let ((bloom-saved-views '(("Needles" "text" "private phone query")))
+        (bloom-saved-view-limit 8)
+        (bloom-library--search-snapshot
          '(:query "private phone query" :mode "text" :results nil
                   :error nil)))
     (cl-letf (((symbol-function 'jetpacs-org-mode-custom-views)
                (lambda ()
                  '((:id "org-custom-view-safe" :label "Work agenda"
                         :kind "tags-todo")))))
-      (let* ((snapshot (grove-views-snapshot))
+      (let* ((snapshot (bloom-views-snapshot))
              (views (plist-get snapshot :views))
              (phone (car views))
              (emacs (cadr views))
-             (run (grove-views-run-action emacs))
+             (run (bloom-views-run-action emacs))
              (json (jetpacs-node->canonical-json
-                    (grove-navigation-search-screen nil))))
+                    (bloom-navigation-search-screen nil))))
         (should (= (length views) 2))
-        (should (equal (plist-get phone :source) "grove"))
+        (should (equal (plist-get phone :source) "bloom"))
         (should (equal (plist-get emacs :source) "emacs"))
         (should (equal (plist-get run :args)
                        '(:view-id "org-custom-view-safe")))
@@ -922,12 +929,12 @@ Foundation renderer takes its whole appearance from them."
         (should (string-search "Read-only" json))
         (should-not (string-search "org-agenda-custom-commands" json))
         (should (jetpacs-check-profile
-                 (grove-navigation-search-screen nil) 'app))))))
+                 (bloom-navigation-search-screen nil) 'app))))))
 
-(ert-deftest grove-saved-view-actions-resolve-live-config-and-persist ()
+(ert-deftest bloom-saved-view-actions-resolve-live-config-and-persist ()
   "Phone views save/delete locally and both sources run by opaque identity."
-  (let ((grove-saved-views nil)
-        (grove-saved-view-limit 8)
+  (let ((bloom-saved-views nil)
+        (bloom-saved-view-limit 8)
         persisted phone-run custom-run deferred notified)
     (cl-letf (((symbol-function 'customize-save-variable)
                (lambda (_symbol value) (setq persisted (copy-tree value))))
@@ -935,45 +942,45 @@ Foundation renderer takes its whole appearance from them."
                (lambda ()
                  '((:id "org-custom-view-work" :label "Work"
                         :kind "tags"))))
-              ((symbol-function 'grove-library-search)
+              ((symbol-function 'bloom-library-search)
                (lambda (&rest args) (setq phone-run args) t))
-              ((symbol-function 'grove-library-custom-view-search)
+              ((symbol-function 'bloom-library-custom-view-search)
                (lambda (&rest args) (setq custom-run args) t))
-              ((symbol-function 'grove-library-clear-active-view)
+              ((symbol-function 'bloom-library-clear-active-view)
                (lambda (_id) t))
               ((symbol-function 'jetpacs-app-defer-refresh)
                (lambda (_params) (setq deferred t)))
               ((symbol-function 'jetpacs-shell-notify)
                (lambda (&rest args) (setq notified args))))
-      (let* ((phone (grove-views--add "Inbox" "match" "+inbox"))
+      (let* ((phone (bloom-views--add "Inbox" "match" "+inbox"))
              (phone-id (plist-get phone :id)))
         (should (equal persisted '(("Inbox" "match" "+inbox"))))
-        (should-error (grove-views--add "inbox" "text" "duplicate")
+        (should-error (bloom-views--add "inbox" "text" "duplicate")
                       :type 'user-error)
-        (should (eq (grove-views--on-run
-                     (list :view-id phone-id) '(:surface "app:grove"))
+        (should (eq (bloom-views--on-run
+                     (list :view-id phone-id) '(:surface "app:bloom"))
                     'accepted))
         (should (equal (seq-take phone-run 2) '("+inbox" "match")))
-        (should (eq (grove-views--on-run
+        (should (eq (bloom-views--on-run
                      '(:view-id "org-custom-view-work")
-                     '(:surface "app:grove"))
+                     '(:surface "app:bloom"))
                     'accepted))
         (should (equal custom-run
                        '("org-custom-view-work" "Work" "tags")))
-        (should (eq (grove-views--on-delete
-                     (list :view-id phone-id) '(:surface "app:grove"))
+        (should (eq (bloom-views--on-delete
+                     (list :view-id phone-id) '(:surface "app:bloom"))
                     'accepted))
-        (should-not grove-saved-views)
+        (should-not bloom-saved-views)
         (should deferred)
-        (should (equal notified '("Saved view deleted" "app:grove")))
-        (should (eq (grove-views--on-delete
+        (should (equal notified '("Saved view deleted" "app:bloom")))
+        (should (eq (bloom-views--on-delete
                      '(:view-id "org-custom-view-work")
-                     '(:surface "app:grove"))
+                     '(:surface "app:bloom"))
                     'rejected))))))
 
-(ert-deftest grove-save-view-flow-captures-query-but-never-authors-it-in-action ()
+(ert-deftest bloom-save-view-flow-captures-query-but-never-authors-it-in-action ()
   "Save uses field capture, validates natively, and prompts outside dispatch."
-  (let ((grove-saved-views nil)
+  (let ((bloom-saved-views nil)
         continuation validated persisted searched)
     (cl-letf (((symbol-function 'jetpacs-flow-continue)
                (lambda (function) (setq continuation function)))
@@ -983,17 +990,17 @@ Foundation renderer takes its whole appearance from them."
                (lambda (&rest args) (setq validated args) nil))
               ((symbol-function 'customize-save-variable)
                (lambda (_symbol value) (setq persisted (copy-tree value))))
-              ((symbol-function 'grove-library-search)
+              ((symbol-function 'bloom-library-search)
                (lambda (&rest args) (setq searched args) t))
               ((symbol-function 'jetpacs-app-defer-refresh) #'ignore)
               ((symbol-function 'jetpacs-shell-notify) #'ignore))
-      (let ((action (grove-views-save-action "text")))
+      (let ((action (bloom-views-save-action "text")))
         (should (equal (plist-get action :args) '(:mode "text")))
         (should-not (string-search "needle" (prin1-to-string action))))
-      (should (eq (grove-views--on-save
+      (should (eq (bloom-views--on-save
                    '(:mode "text")
-                   '(:surface "app:grove"
-                     :fields (:grove-search-query "needle")))
+                   '(:surface "app:bloom"
+                     :fields (:bloom-search-query "needle")))
                   'accepted))
       (should continuation)
       (funcall continuation)
@@ -1001,9 +1008,9 @@ Foundation renderer takes its whole appearance from them."
       (should (equal persisted '(("My view" "text" "needle"))))
       (should (equal (seq-take searched 2) '("needle" "text"))))))
 
-(ert-deftest grove-document-subtree-save-rolls-back-pre-durability-failure ()
+(ert-deftest bloom-document-subtree-save-rolls-back-pre-durability-failure ()
   "A failed prewrite restores the entire live Org buffer exactly."
-  (let* ((file (make-temp-file "grove-document" nil ".org"
+  (let* ((file (make-temp-file "bloom-document" nil ".org"
                                "* TODO Original\nBody.\n* Keep\nSafe.\n"))
          (buffer (find-file-noselect file t)))
     (unwind-protect
@@ -1022,13 +1029,13 @@ Foundation renderer takes its whole appearance from them."
                          (insert "CORRUPT")
                          (error "prewrite failed"))))
               (should-error
-               (grove-document--replace-subtree
+               (bloom-document--replace-subtree
                 buffer beg end "* TODO Changed\nNew.\n"))
               (should (equal (buffer-string) before))
               (should-not (buffer-modified-p)))
             (cl-letf (((symbol-function 'jetpacs-org-save-policy)
                        (lambda (_buffer) t)))
-              (let ((new-ref (grove-document--replace-subtree
+              (let ((new-ref (bloom-document--replace-subtree
                               buffer beg end "* TODO Changed\nNew.\n")))
                 (should (equal (plist-get new-ref :headline) "Changed"))
                 (should (string-prefix-p "* TODO Changed\nNew.\n* Keep"
@@ -1038,82 +1045,82 @@ Foundation renderer takes its whole appearance from them."
         (kill-buffer buffer))
       (delete-file file))))
 
-(ert-deftest grove-planning-commits-the-captured-pair-and-checks-revision ()
+(ert-deftest bloom-planning-commits-the-captured-pair-and-checks-revision ()
   "Planning forwards both fields atomically and rejects a stale document."
   (let* ((content "* TODO Alpha\n")
          (revision (secure-hash 'sha256 content))
          ;; A queued save must remain self-describing after Emacs loses the
          ;; transient planning canvas.
-         (grove-document--planning nil)
-         (ref (grove-test--ref "/tmp/alpha.org" 1 "Alpha" "alpha"))
+         (bloom-document--planning nil)
+         (ref (bloom-test--ref "/tmp/alpha.org" 1 "Alpha" "alpha"))
          called refreshed continued)
-    (let ((grove-document--planning
+    (let ((bloom-document--planning
            (list :notebook-id "notebook" :heading-id "heading"
                  :revision revision :scheduled "" :deadline "")))
-      (let ((screen (grove-document-planning-screen nil)))
+      (let ((screen (bloom-document-planning-screen nil)))
         (should (jetpacs-check-profile screen 'app))
         (let ((json (jetpacs-node->canonical-json screen)))
           (should (string-search "notebook" json))
           (should (string-search revision json)))))
-    (cl-letf (((symbol-function 'grove-library-resolve-heading)
+    (cl-letf (((symbol-function 'bloom-library-resolve-heading)
                (lambda (&rest _) ref))
-              ((symbol-function 'grove-document--live-subtree)
+              ((symbol-function 'bloom-document--live-subtree)
                (lambda (_ref) (list :content content)))
               ((symbol-function 'ebp-org-set-planning-pair)
                (lambda (&rest args) (setq called args)))
-              ((symbol-function 'grove-document--after-mutation)
+              ((symbol-function 'bloom-document--after-mutation)
                (lambda (&rest _) (setq refreshed t)))
               ((symbol-function 'jetpacs-flow-continue)
                (lambda (fn) (setq continued fn))))
       (should
-       (eq (grove-document--on-planning-save
+       (eq (bloom-document--on-planning-save
             `(:notebook-id "notebook" :heading-id "heading"
                            :revision ,revision)
-            '(:surface "app:grove"
-                       :fields (:grove-scheduled "<2026-09-04 Fri 10:00 +1w>"
-                                                 :grove-deadline "<2026-09-05 Sat>")))
+            '(:surface "app:bloom"
+                       :fields (:bloom-scheduled "<2026-09-04 Fri 10:00 +1w>"
+                                                 :bloom-deadline "<2026-09-05 Sat>")))
            'accepted))
       (should (equal called
-                     (list ref 'grove "<2026-09-04 Fri 10:00 +1w>"
+                     (list ref 'bloom "<2026-09-04 Fri 10:00 +1w>"
                            "<2026-09-05 Sat>")))
       (should refreshed)
       (should (functionp continued))
-      (should-not grove-document--planning))
-    (let ((grove-document--planning
+      (should-not bloom-document--planning))
+    (let ((bloom-document--planning
            (list :notebook-id "notebook" :heading-id "heading"
                  :revision revision :scheduled "" :deadline ""))
           called)
-      (cl-letf (((symbol-function 'grove-library-resolve-heading)
+      (cl-letf (((symbol-function 'bloom-library-resolve-heading)
                  (lambda (&rest _) ref))
-                ((symbol-function 'grove-document--live-subtree)
+                ((symbol-function 'bloom-document--live-subtree)
                  (lambda (_ref) (list :content "* TODO Changed\n")))
                 ((symbol-function 'ebp-org-set-planning-pair)
                  (lambda (&rest args) (setq called args))))
         (should
-         (eq (grove-document--on-planning-save
+         (eq (bloom-document--on-planning-save
               `(:notebook-id "notebook" :heading-id "heading"
                              :revision ,revision)
               nil)
              'stale))
         (should-not called)))))
 
-(defun grove-test--json (value)
+(defun bloom-test--json (value)
   "VALUE's canonical JSON as a multibyte string, searchable for any text."
   (let ((json (jetpacs-node->canonical-json value)))
     (if (multibyte-string-p json) json (decode-coding-string json 'utf-8))))
 
-(defun grove-test--materialized-planning-json ()
+(defun bloom-test--materialized-planning-json ()
   "The planning screen as the Companion renders it: bound members resolved."
-  (grove-test--json
-   (jetpacs-data-materialize (grove-document-planning-screen nil)
-                             (grove-document-surface-data)
+  (bloom-test--json
+   (jetpacs-data-materialize (bloom-document-planning-screen nil)
+                             (bloom-document-surface-data)
                              :strip t)))
 
-(ert-deftest grove-planning-calendar-is-pure-styled-and-profile-valid ()
+(ert-deftest bloom-planning-calendar-is-pure-styled-and-profile-valid ()
   "The combined calendar is a pure projection with a styled planning range.
 Its values travel in the surface data document (SPEC 13.8): the authored
 screen binds them, the materialized screen shows them."
-  (let ((grove-document--planning
+  (let ((bloom-document--planning
          '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
            :scheduled "<2026-09-04 Fri 09:00 +1w>"
            :deadline "<2026-09-08 Tue>" :focus "scheduled"
@@ -1125,9 +1132,9 @@ screen binds them, the materialized screen shows them."
                (lambda (type member &optional _target)
                  (and (equal type "month_grid")
                       (equal member "day_styles")))))
-      (let* ((screen (grove-document-planning-screen nil))
-             (authored (grove-test--json screen))
-             (json (grove-test--materialized-planning-json)))
+      (let* ((screen (bloom-document-planning-screen nil))
+             (authored (bloom-test--json screen))
+             (json (bloom-test--materialized-planning-json)))
         (should (jetpacs-check-profile screen 'app))
         ;; Authored: bindings in place of every draft-dependent value.
         (should (string-search "\"range_start\":\"/planning/range_start\""
@@ -1152,44 +1159,44 @@ screen binds them, the materialized screen shows them."
         (should (string-search "\"label\":\"Add time\"" json))
         (should (string-search "Scheduled · 2026-09-04" json))
         (should (string-search "\"variant\":\"filled\"" json))
-        (should (string-search "grove.planning.focus" json))
-        (should (string-search "grove.planning.month" json))
+        (should (string-search "bloom.planning.focus" json))
+        (should (string-search "bloom.planning.month" json))
         (should (string-search "Clear both" json))
         (should (string-search "4 days between scheduled and deadline" json))
         ;; The document is the handler's patch, byte for byte.
-        (should (equal (grove-test--json
-                        (jetpacs-data-set "/planning" (grove-document-planning-data)))
-                       (grove-test--json
+        (should (equal (bloom-test--json
+                        (jetpacs-data-set "/planning" (bloom-document-planning-data)))
+                       (bloom-test--json
                         (jetpacs-data-set "/planning"
-                                          (plist-get (grove-document-surface-data)
+                                          (plist-get (bloom-document-surface-data)
                                                      :planning)))))))))
 
-(ert-deftest grove-planning-calendar-degrades-day-styles-to-colored-marks ()
+(ert-deftest bloom-planning-calendar-degrades-day-styles-to-colored-marks ()
   "A constrained member profile gets marks instead of day_styles."
-  (let ((grove-document--planning
+  (let ((bloom-document--planning
          '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
            :scheduled "2026-09-04" :deadline "2026-09-08"
            :focus "deadline" :today "2026-09-01" :month "2026-09"
            :marks nil)))
     (cl-letf (((symbol-function 'jetpacs-node-member-advertised-p)
                (lambda (&rest _) nil)))
-      (let ((json (grove-test--materialized-planning-json)))
+      (let ((json (bloom-test--materialized-planning-json)))
         (should-not (string-search "\"day_styles\"" json))
         (should (string-search "\"color\":\"primary\"" json))
         (should (string-search "\"color\":\"error\"" json))))))
 
-(ert-deftest grove-planning-actions-preserve-captured-pair-and-validate-dates ()
+(ert-deftest bloom-planning-actions-preserve-captured-pair-and-validate-dates ()
   "Calendar transitions preserve local edits and reject malformed injection.
 Every change patches the surface data document: since SPEC 13.8.6 the
 feedback cards are conditional nodes, so even a change of feedback kind
 is a patch, never a snapshot."
-  (let ((grove-document--planning
+  (let ((bloom-document--planning
          '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
            :scheduled "<2026-09-04 Fri 09:00 +1w>"
            :deadline "" :focus "scheduled" :today "2026-09-01"
            :month "2026-09" :marks nil))
         mark-months published)
-    (cl-letf (((symbol-function 'grove-org-planning-marks)
+    (cl-letf (((symbol-function 'bloom-org-planning-marks)
                (lambda (month)
                  (push month mark-months)
                  (list (cons (concat month "-02") 1))))
@@ -1200,16 +1207,16 @@ is a patch, never a snapshot."
       ;; A lone scheduled date becomes a pair: the lead-time card appears
       ;; through the document alone (SPEC 13.8.6), so this too is a patch.
       (should
-       (eq (grove-document--on-planning-pick
+       (eq (bloom-document--on-planning-pick
             '(:field "scheduled" :kind "date" :value "2026-10-07")
-            '(:fields (:grove-scheduled "<2026-09-04 Fri 09:00 +1w>"
-                       :grove-deadline "<2026-10-11 Sun>")))
+            '(:fields (:bloom-scheduled "<2026-09-04 Fri 09:00 +1w>"
+                       :bloom-deadline "<2026-10-11 Sun>")))
            'accepted))
-      (should (equal (plist-get grove-document--planning :scheduled)
+      (should (equal (plist-get bloom-document--planning :scheduled)
                      "<2026-10-07 09:00 +1w>"))
-      (should (equal (plist-get grove-document--planning :deadline)
+      (should (equal (plist-get bloom-document--planning :deadline)
                      "<2026-10-11 Sun>"))
-      (should (equal (plist-get grove-document--planning :month) "2026-10"))
+      (should (equal (plist-get bloom-document--planning :month) "2026-10"))
       (should (equal mark-months '("2026-10")))
       (should (eq (car (car published)) 'patch))
       (should (equal (plist-get (plist-get (car (cdr (car published))) :value)
@@ -1217,20 +1224,20 @@ is a patch, never a snapshot."
                      "lead-time"))
       ;; Moving focus changes values only: one patch of the whole object.
       (should
-       (eq (grove-document--on-planning-focus
+       (eq (bloom-document--on-planning-focus
             '(:field "deadline")
-            '(:fields (:grove-scheduled "<2026-10-07 09:00 +1w>"
-                       :grove-deadline "<2026-10-11 Sun>")))
+            '(:fields (:bloom-scheduled "<2026-10-07 09:00 +1w>"
+                       :bloom-deadline "<2026-10-11 Sun>")))
            'accepted))
       (should (eq (car (car published)) 'patch))
       (let* ((ops (cdr (car published)))
              (planning (plist-get (car ops) :value)))
         (should (= (length ops) 1))
         (should (equal (plist-get (car ops) :path) "/planning"))
-        (should (equal (grove-test--json (car ops))
-                       (grove-test--json
+        (should (equal (bloom-test--json (car ops))
+                       (bloom-test--json
                         (jetpacs-data-set "/planning"
-                                          (grove-document-planning-data)))))
+                                          (bloom-document-planning-data)))))
         (should (equal (plist-get planning :month) "2026-10"))
         (should (equal (plist-get planning :range_start) "2026-10-07"))
         (should (equal (plist-get planning :range_end) "2026-10-11"))
@@ -1246,64 +1253,64 @@ is a patch, never a snapshot."
                        '(:dots 1))))
       ;; Shorthand drafts dissolve the pair: the card goes — by patch.
       (should
-       (eq (grove-document--on-planning-month
+       (eq (bloom-document--on-planning-month
             '(:value "2026-11")
-            '(:fields (:grove-scheduled "nov 2 09:00"
-                       :grove-deadline "nov 9")))
+            '(:fields (:bloom-scheduled "nov 2 09:00"
+                       :bloom-deadline "nov 9")))
            'accepted))
-      (should (equal (plist-get grove-document--planning :scheduled)
+      (should (equal (plist-get bloom-document--planning :scheduled)
                      "nov 2 09:00"))
-      (should (equal (plist-get grove-document--planning :deadline) "nov 9"))
+      (should (equal (plist-get bloom-document--planning :deadline) "nov 9"))
       (should (equal mark-months '("2026-11" "2026-10")))
       (should (eq (car (car published)) 'patch))
       (should-not (plist-member (plist-get (car (cdr (car published))) :value)
                                 :feedback_kind))
-      (let ((before (copy-tree grove-document--planning))
+      (let ((before (copy-tree bloom-document--planning))
             (shown (length published)))
         (should
-         (eq (grove-document--on-planning-pick
+         (eq (bloom-document--on-planning-pick
               '(:field "deadline" :kind "date" :value "2026-02-30") nil)
              'rejected))
-        (should (equal grove-document--planning before))
+        (should (equal bloom-document--planning before))
         (should (= (length published) shown)))
       (should
-       (eq (grove-document--on-planning-clear
+       (eq (bloom-document--on-planning-clear
             '(:field "both")
-            '(:fields (:grove-scheduled "keep?" :grove-deadline "keep?")))
+            '(:fields (:bloom-scheduled "keep?" :bloom-deadline "keep?")))
            'accepted))
-      (should (equal (plist-get grove-document--planning :scheduled) ""))
-      (should (equal (plist-get grove-document--planning :deadline) ""))
+      (should (equal (plist-get bloom-document--planning :scheduled) ""))
+      (should (equal (plist-get bloom-document--planning :deadline) ""))
       (should (eq (car (car published)) 'patch)))))
 
-(ert-deftest grove-planning-focus-serves-calendar-taps-and-suggestions ()
+(ert-deftest bloom-planning-focus-serves-calendar-taps-and-suggestions ()
   "A calendar tap names no target: the focused one, which only the document
 shows, receives it.  The runway suggestion is computed when its button
 is tapped, from the captured deadline, never baked into the tree."
-  (let ((grove-document--planning
+  (let ((bloom-document--planning
          '(:notebook-id "notebook" :heading-id "heading" :revision "rev"
            :scheduled "" :deadline "<2026-09-08 Tue>" :focus "deadline"
            :today "2026-09-01" :month "2026-09" :marks nil))
         published)
-    (cl-letf (((symbol-function 'grove-org-planning-marks)
+    (cl-letf (((symbol-function 'bloom-org-planning-marks)
                (lambda (_month) nil))
               ((symbol-function 'jetpacs-app-defer-refresh)
                (lambda (&rest _) (push 'refresh published)))
               ((symbol-function 'jetpacs-app-defer-patch)
                (lambda (ops &rest _) (push (cons 'patch ops) published))))
-      (let ((authored (grove-test--json (grove-document-planning-screen nil))))
+      (let ((authored (bloom-test--json (bloom-document-planning-screen nil))))
         (should (string-search "\"args\":{\"kind\":\"date\"}" authored))
-        (should (string-search "grove.planning.suggest" authored))
+        (should (string-search "bloom.planning.suggest" authored))
         (should-not (string-search "Schedule this for" authored))
         (should (string-search "Schedule this for 2026-09-05"
-                               (grove-test--materialized-planning-json))))
+                               (bloom-test--materialized-planning-json))))
       ;; A day tap with no field lands on the focused deadline.
       (should
-       (eq (grove-document--on-planning-pick
+       (eq (bloom-document--on-planning-pick
             '(:kind "date" :value "2026-09-10")
-            '(:fields (:grove-scheduled "" :grove-deadline "<2026-09-08 Tue>")))
+            '(:fields (:bloom-scheduled "" :bloom-deadline "<2026-09-08 Tue>")))
            'accepted))
-      (should (equal (plist-get grove-document--planning :deadline) "<2026-09-10>"))
-      (should (equal (plist-get grove-document--planning :scheduled) ""))
+      (should (equal (plist-get bloom-document--planning :deadline) "<2026-09-10>"))
+      (should (equal (plist-get bloom-document--planning :scheduled) ""))
       ;; Still a runway: a patch, whose suggestion follows the deadline.
       (should (eq (car (car published)) 'patch))
       (let ((planning (plist-get (car (cdr (car published))) :value)))
@@ -1314,53 +1321,53 @@ is tapped, from the captured deadline, never baked into the tree."
                        "Deadline · 2026-09-10")))
       ;; The suggestion applies the captured deadline, not the draft's.
       (should
-       (eq (grove-document--on-planning-suggest
+       (eq (bloom-document--on-planning-suggest
             nil
-            '(:fields (:grove-scheduled "" :grove-deadline "<2026-09-20 Sun>")))
+            '(:fields (:bloom-scheduled "" :bloom-deadline "<2026-09-20 Sun>")))
            'accepted))
-      (should (equal (plist-get grove-document--planning :scheduled) "2026-09-17"))
-      (should (equal (plist-get grove-document--planning :deadline)
+      (should (equal (plist-get bloom-document--planning :scheduled) "2026-09-17"))
+      (should (equal (plist-get bloom-document--planning :deadline)
                      "<2026-09-20 Sun>"))
-      (should (equal (plist-get grove-document--planning :focus) "scheduled"))
+      (should (equal (plist-get bloom-document--planning :focus) "scheduled"))
       ;; Now a pair: the lead-time card shows, and that too is a patch.
       (should (eq (car (car published)) 'patch))
       (should (equal (plist-get (plist-get (car (cdr (car published))) :value)
                                 :feedback_kind)
                      "lead-time"))
-      (setq grove-document--planning
-            (plist-put grove-document--planning :deadline ""))
-      (should (eq (grove-document--on-planning-suggest nil nil) 'rejected)))))
+      (setq bloom-document--planning
+            (plist-put bloom-document--planning :deadline ""))
+      (should (eq (bloom-document--on-planning-suggest nil nil) 'rejected)))))
 
-(ert-deftest grove-root-carries-the-planning-data-document ()
+(ert-deftest bloom-root-carries-the-planning-data-document ()
   "The app root's data builder is the planning projection (SPEC 13.8)."
-  (let ((grove-document--planning nil))
-    (should-not (grove-document-surface-data)))
-  (let ((grove-document--planning
+  (let ((bloom-document--planning nil))
+    (should-not (bloom-document-surface-data)))
+  (let ((bloom-document--planning
          '(:notebook-id "n" :heading-id "h" :revision "r"
            :scheduled "" :deadline "" :focus "scheduled"
            :today "2026-09-01" :month "2026-09" :marks nil)))
-    (should (equal (plist-get (plist-get (grove-document-surface-data) :planning)
+    (should (equal (plist-get (plist-get (bloom-document-surface-data) :planning)
                               :month)
                    "2026-09"))
-    (should (equal (grove-document-surface-data) (grove-document-surface-data)))))
+    (should (equal (bloom-document-surface-data) (bloom-document-surface-data)))))
 
-(ert-deftest grove-planning-presets-and-colliding-styles-are-deterministic ()
+(ert-deftest bloom-planning-presets-and-colliding-styles-are-deterministic ()
   "Quick dates use calendar arithmetic and a same-day deadline wins color."
-  (should (equal (grove-document--planning-preset-dates "2026-09-01")
+  (should (equal (bloom-document--planning-preset-dates "2026-09-01")
                  '(("Today" . "2026-09-01")
                    ("Tomorrow" . "2026-09-02")
                    ("This weekend" . "2026-09-05")
                    ("Next week" . "2026-09-07"))))
-  (let ((styles (grove-document--planning-day-styles
+  (let ((styles (bloom-document--planning-day-styles
                  "2026-09-04" "2026-09-04")))
     (should (= (length styles) 1))
     (should (equal (plist-get (cdar styles) :background) "error"))))
 
-(ert-deftest grove-notebooks-use-reveal-only-swipe-and-folder-local-builders ()
+(ert-deftest bloom-notebooks-use-reveal-only-swipe-and-folder-local-builders ()
   "Notebook swipes never commit and each stacked folder keeps its own model."
-  (let* ((folder-id "grove-folder-projects")
-         (grove-library-tree-view t)
-         (grove-library--snapshot
+  (let* ((folder-id "bloom-folder-projects")
+         (bloom-library-tree-view t)
+         (bloom-library--snapshot
           `(:notebooks
             ((:id "root-note" :folder-id nil :label "Inbox"
                   :file-label "inbox.org" :folder-label "Notebooks"
@@ -1373,35 +1380,35 @@ is tapped, from the captured deadline, never baked into the tree."
             :total-count 2 :truncated nil :error nil)))
     (cl-letf (((symbol-function 'jetpacs-feature-advertised-p)
                (lambda (&rest _) t)))
-      (let* ((row (grove-navigation-notebook-row
-                   (car (plist-get grove-library--snapshot :notebooks))))
+      (let* ((row (bloom-navigation-notebook-row
+                   (car (plist-get bloom-library--snapshot :notebooks))))
              (swipe (plist-get row :swipe_end)))
         (should swipe)
         (should-not (plist-get swipe :commit)))
       (let* ((root-json
               (jetpacs-node->canonical-json
-               (grove-navigation-notebooks-screen nil)))
+               (bloom-navigation-notebooks-screen nil)))
              (child-json
               (jetpacs-node->canonical-json
-               (grove-navigation--notebooks-screen-for-folder
+               (bloom-navigation--notebooks-screen-for-folder
                 folder-id nil)))
              (root-again
               (jetpacs-node->canonical-json
-               (grove-navigation-notebooks-screen nil))))
+               (bloom-navigation-notebooks-screen nil))))
         (should (string-search "Inbox" root-json))
         (should-not (string-search "Client" root-json))
         (should (string-search "Client" child-json))
         (should-not (string-search "Inbox" child-json))
         (should (equal root-json root-again))))))
 
-(ert-deftest grove-outline-rows-expose-safe-rich-structure-controls ()
+(ert-deftest bloom-outline-rows-expose-safe-rich-structure-controls ()
   "Leading swipes reveal four actions without commit; only Done deep-commits."
-  (let* ((grove-navigation--notebook-id "grove-notebook-test")
-         (record '(:id "grove-heading-test" :parent-id nil :level 1
+  (let* ((bloom-navigation--notebook-id "bloom-notebook-test")
+         (record '(:id "bloom-heading-test" :parent-id nil :level 1
                        :title "Plan project" :todo "TODO" :done nil
                        :revision
                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
-         (row (car (grove-navigation--outline-children (list record) nil)))
+         (row (car (bloom-navigation--outline-children (list record) nil)))
          (start (plist-get row :swipe_start))
          (end (plist-get row :swipe_end))
          (json (jetpacs-node->canonical-json row)))
@@ -1421,16 +1428,16 @@ is tapped, from the captured deadline, never baked into the tree."
     (should-not (string-search ":file" json))
     (should-not (string-search "/home/" json))))
 
-(ert-deftest grove-outline-disclosure-and-reading-have-distinct-targets ()
+(ert-deftest bloom-outline-disclosure-and-reading-have-distinct-targets ()
   "Only parents disclose children; every heading retains a reading action."
-  (let* ((grove-navigation--notebook-id "grove-notebook-test")
+  (let* ((bloom-navigation--notebook-id "bloom-notebook-test")
          (records '((:id "parent" :parent-id nil :title "Parent" :todo "TODO")
                     (:id "child" :parent-id "parent" :title "Child")
                     (:id "leaf" :parent-id nil :title "Leaf"))))
     (dolist (advertised '(nil t))
       (cl-letf (((symbol-function 'jetpacs-node-advertised-p)
                  (lambda (&rest _) advertised)))
-        (let* ((rows (grove-navigation--outline-children records nil))
+        (let* ((rows (bloom-navigation--outline-children records nil))
                (parent (car rows))
                (leaf (cadr rows))
                (header (plist-get parent :header))
@@ -1439,7 +1446,7 @@ is tapped, from the captured deadline, never baked into the tree."
           (should (equal (plist-get parent :t) "collapsible"))
           (should-not (plist-get header :on_tap))
           (should (equal (plist-get (plist-get leaf :on_tap) :action)
-                         "grove.document.open"))
+                         "bloom.document.open"))
           (should-not (string-search "chevron_right" json))
           (should-not (string-search "account_tree" json))
           (should (string-search "TODO · 1 section" (decode-coding-string json 'utf-8)))
@@ -1447,26 +1454,26 @@ is tapped, from the captured deadline, never baked into the tree."
           (should (equal json
                          (jetpacs-node->canonical-json
                           (apply #'jetpacs-column
-                                 (grove-navigation--outline-children
+                                 (bloom-navigation--outline-children
                                   records nil))))))))))
 
-(ert-deftest grove-outline-mutation-is-revision-bound-and-undoable ()
+(ert-deftest bloom-outline-mutation-is-revision-bound-and-undoable ()
   "A live opaque row can move and undo; a later local edit makes it stale."
-  (let* ((root (make-temp-file "grove-structure" t))
+  (let* ((root (make-temp-file "bloom-structure" t))
          (file (expand-file-name "notes.org" root))
          (org-directory root)
          (org-agenda-files (list file))
          (ebp-org-roots (list root))
-         (grove-library--snapshot
+         (bloom-library--snapshot
           '(:notebooks nil :folders nil :total-count 0 :truncated nil
                        :error nil))
-         (grove-library--notebook-paths (make-hash-table :test #'equal))
-         (grove-library--folder-paths (make-hash-table :test #'equal))
-         (grove-library--heading-refs (make-hash-table :test #'equal))
-         (grove-library--outlines (make-hash-table :test #'equal))
-         (grove-library--documents (make-hash-table :test #'equal))
-         (grove-structure--expanded (make-hash-table :test #'equal))
-         (grove-structure--undo-notebooks nil)
+         (bloom-library--notebook-paths (make-hash-table :test #'equal))
+         (bloom-library--folder-paths (make-hash-table :test #'equal))
+         (bloom-library--heading-refs (make-hash-table :test #'equal))
+         (bloom-library--outlines (make-hash-table :test #'equal))
+         (bloom-library--documents (make-hash-table :test #'equal))
+         (bloom-structure--expanded (make-hash-table :test #'equal))
+         (bloom-structure--undo-notebooks nil)
          (ebp-org-file-save-function
           (lambda (buffer)
             (with-current-buffer buffer (save-buffer))
@@ -1486,52 +1493,52 @@ is tapped, from the captured deadline, never baked into the tree."
                      (lambda (&rest _) t))
                     ((symbol-function 'jetpacs-shell-push)
                      (lambda (&rest _) t)))
-            (grove-library-refresh)
+            (bloom-library-refresh)
             (let* ((notebook-id
                     (plist-get
-                     (car (plist-get (grove-library-snapshot) :notebooks))
+                     (car (plist-get (bloom-library-snapshot) :notebooks))
                      :id))
                    (records
-                    (plist-get (grove-library-outline-refresh notebook-id)
+                    (plist-get (bloom-library-outline-refresh notebook-id)
                                :records))
                    (alpha (cl-find "Alpha" records
                                    :key (lambda (record)
                                           (plist-get record :title))
                                    :test #'equal))
-                   (args (grove-structure--identity-args
+                   (args (bloom-structure--identity-args
                           notebook-id alpha "move-down"))
-                   (params '(:surface "app:grove")))
-              (should (eq (grove-structure--on-mutate args params)
+                   (params '(:surface "app:bloom")))
+              (should (eq (bloom-structure--on-mutate args params)
                           'accepted))
               (with-current-buffer (find-file-noselect file t)
                 (org-with-wide-buffer
                  (goto-char (point-min))
                  (should (looking-at-p "\\* Beta"))))
-              (should (jetpacs-org-structure-undo-summary grove-owner))
-              (should (eq (grove-structure--on-undo nil params) 'accepted))
+              (should (jetpacs-org-structure-undo-summary bloom-owner))
+              (should (eq (bloom-structure--on-undo nil params) 'accepted))
               (with-current-buffer (find-file-noselect file t)
                 (org-with-wide-buffer
                  (goto-char (point-min))
                  (should (looking-at-p "\\* Alpha"))
                  (search-forward ":END:\n")
                  (insert "Local drift\n")))
-              (should (eq (grove-structure--on-mutate args params) 'stale))
+              (should (eq (bloom-structure--on-mutate args params) 'stale))
               (let* ((fresh-records
                       (plist-get
-                       (grove-library-outline-refresh notebook-id) :records))
+                       (bloom-library-outline-refresh notebook-id) :records))
                      (fresh-alpha
                       (cl-find "Alpha" fresh-records
                                :key (lambda (record)
                                       (plist-get record :title))
                                :test #'equal))
                      (narrow-args
-                      (grove-structure--identity-args
+                      (bloom-structure--identity-args
                        notebook-id fresh-alpha "narrow")))
-                (should (eq (grove-structure--on-mutate
+                (should (eq (bloom-structure--on-mutate
                              narrow-args params)
                             'accepted))
                 (let ((slice
-                       (grove-structure-outline-slice
+                       (bloom-structure-outline-slice
                         notebook-id fresh-records)))
                   (should (plist-get slice :focused))
                   (should (equal
@@ -1539,71 +1546,71 @@ is tapped, from the captured deadline, never baked into the tree."
                                      (plist-get record :title))
                                    (plist-get slice :records))
                            '("Alpha" "Child"))))
-                (should (eq (grove-structure--on-widen
+                (should (eq (bloom-structure--on-widen
                              (list :notebook-id notebook-id) params)
                             'accepted))))))
-      (jetpacs-org-structure-reset grove-owner)
+      (jetpacs-org-structure-reset bloom-owner)
       (when-let* ((buffer (find-buffer-visiting file)))
         (with-current-buffer buffer (set-buffer-modified-p nil))
         (kill-buffer buffer))
       (delete-directory root t))))
 
-(ert-deftest grove-primary-shell-and-settings-are-valid-and-whitelisted ()
-  "Grove is a standalone app with four destinations and safe settings."
+(ert-deftest bloom-primary-shell-and-settings-are-valid-and-whitelisted ()
+  "Bloom is a standalone app with four destinations and safe settings."
   (should (equal (mapcar (lambda (row) (plist-get row :key))
-                         grove-navigation-destinations)
+                         bloom-navigation-destinations)
                  '("notebooks" "agenda" "search" "settings")))
-  (let ((entry (cdr (assoc grove-owner jetpacs-apps--registry))))
+  (let ((entry (cdr (assoc bloom-owner jetpacs-apps--registry))))
     (should (eq (plist-get entry :chrome) 'standalone))
     (should (equal (plist-get entry :home-route) "notebooks"))
     (should-not (plist-get entry :requires-extensions)))
   (should (jetpacs-check-profile
-           (grove-navigation-settings-screen nil) 'app))
-  (let ((grove-library-tree-view t)
+           (bloom-navigation-settings-screen nil) 'app))
+  (let ((bloom-library-tree-view t)
         saved deferred reminder-sync)
-    (cl-letf (((symbol-function 'grove-navigation--save-setting)
+    (cl-letf (((symbol-function 'bloom-navigation--save-setting)
                (lambda (symbol value) (setq saved (list symbol value))))
               ((symbol-function 'jetpacs-app-defer-refresh)
                (lambda (_params) (setq deferred t)))
-              ((symbol-function 'grove-reminders-schedule-sync)
+              ((symbol-function 'bloom-reminders-schedule-sync)
                (lambda (&rest _) (setq reminder-sync t))))
-      (should (eq (grove-navigation--on-setting
+      (should (eq (bloom-navigation--on-setting
                    '(:field "tree" :value :json-false) nil)
                   'accepted))
-      (should (equal saved '(grove-library-tree-view nil)))
+      (should (equal saved '(bloom-library-tree-view nil)))
       (should deferred)
       (setq saved nil deferred nil)
-      (should (eq (grove-navigation--on-setting
+      (should (eq (bloom-navigation--on-setting
                    '(:field "agenda-days" :value 0) nil)
                   'rejected))
       (should-not saved)
       (should-not deferred)
-      (should (eq (grove-navigation--on-setting
+      (should (eq (bloom-navigation--on-setting
                    '(:field "reminder-lead" :value 60) nil)
                   'accepted))
-      (should (equal saved '(grove-reminder-lead-minutes 60)))
+      (should (equal saved '(bloom-reminder-lead-minutes 60)))
       (should reminder-sync)
       (setq saved nil reminder-sync nil)
-      (should (eq (grove-navigation--on-setting
+      (should (eq (bloom-navigation--on-setting
                    '(:field "reminder-lead" :value 61) nil)
                   'rejected))
       (should-not saved)
       (should-not reminder-sync)
-      (should (eq (grove-navigation--on-setting
+      (should (eq (bloom-navigation--on-setting
                    '(:field "unknown" :value t) nil)
                   'rejected)))))
 
-(ert-deftest grove-org-item-time-is-the-foundation-formatter ()
-  "Grove's agenda clock text is the foundation's, so its cards and the
+(ert-deftest bloom-org-item-time-is-the-foundation-formatter ()
+  "Bloom's agenda clock text is the foundation's, so its cards and the
 reminder projection can never disagree."
-  (should (eq (symbol-function 'grove-org--item-time)
+  (should (eq (symbol-function 'bloom-org--item-time)
               'jetpacs-org-reminders-item-hm))
-  (should (equal (grove-org--item-time " 9:05...... ") "09:05"))
-  (should-not (grove-org--item-time "all day")))
+  (should (equal (bloom-org--item-time " 9:05...... ") "09:05"))
+  (should-not (bloom-org--item-time "all day")))
 
-(ert-deftest grove-lifecycle-is-symmetric ()
-  "Loading grove.el registers nothing, and grove-unregister undoes
-everything grove-register did: the trusted launcher's two lifecycle
+(ert-deftest bloom-lifecycle-is-symmetric ()
+  "Loading bloom.el registers nothing, and bloom-unregister undoes
+everything bloom-register did: the trusted launcher's two lifecycle
 checks, run from the foundation's applet tooling."
   (require 'jetpacs-devtools)
   (load (expand-file-name "../jetpacs-applet-mcp/jetpacs-applet-tooling.el"
@@ -1611,54 +1618,54 @@ checks, run from the foundation's applet tooling."
                            (locate-library "jetpacs-surfaces")))
         nil 'nomessage)
   (should-not (jetpacs-applet-tooling-load-recording-registrations
-               (locate-library "grove.el" t)))
-  (let ((report (jetpacs-applet-tooling-check-lifecycle-symmetry "grove")))
+               (locate-library "bloom.el" t)))
+  (let ((report (jetpacs-applet-tooling-check-lifecycle-symmetry "bloom")))
     (should (string-match-p "Status: SYMMETRIC" report))
     (should (string-match-p "Registered on entry: yes" report)))
-  (should (assoc "grove" jetpacs-apps--registry)))
+  (should (assoc "bloom" jetpacs-apps--registry)))
 
-(provide 'grove-test)
-;;; grove-test.el ends here
+(provide 'bloom-test)
+;;; bloom-test.el ends here
 
-(ert-deftest grove-library-row-facts-match-the-android-app ()
+(ert-deftest bloom-library-row-facts-match-the-android-app ()
   "Monogram colors, note counts, and ages are the app's own derivations."
   ;; Java `String.hashCode' of the vault-relative path, modulo six.
-  (should (equal (mapcar #'grove-library-palette-key
+  (should (equal (mapcar #'bloom-library-palette-key
                          '("archive.org" "inbox.org" "journal.org"
                            "reading-list.org" "tasks.org" "travel.org"
                            "projects" "projects/blog.org" "projects/life.org"))
                  '("amber" "green" "red" "neutral" "accent" "green"
                    "green" "red" "blue")))
-  (let ((file (make-temp-file "grove-notes" nil ".org"
+  (let ((file (make-temp-file "bloom-notes" nil ".org"
                               (concat "#+TITLE: T\n\n"
                                       ":PROPERTIES:\n:ID: x\n:END:\n"
                                       "An intro line.\n* One\n** Child\n* Two\n"))))
     (unwind-protect
-        (should (= (grove-library--note-count file) 3))
+        (should (= (bloom-library--note-count file) 3))
       (delete-file file)))
-  (let ((now grove-test--now))
-    (should (equal (grove-library-relative-time (time-subtract now 30) now)
+  (let ((now bloom-test--now))
+    (should (equal (bloom-library-relative-time (time-subtract now 30) now)
                    "0 minutes ago"))
-    (should (equal (grove-library-relative-time (time-subtract now 60) now)
+    (should (equal (bloom-library-relative-time (time-subtract now 60) now)
                    "1 minute ago"))
-    (should (equal (grove-library-relative-time (time-subtract now 7200) now)
+    (should (equal (bloom-library-relative-time (time-subtract now 7200) now)
                    "2 hours ago"))
-    (should (equal (grove-library-relative-time (time-subtract now 90000) now)
+    (should (equal (bloom-library-relative-time (time-subtract now 90000) now)
                    "Yesterday"))
-    (should (equal (grove-library-relative-time
+    (should (equal (bloom-library-relative-time
                     (time-subtract now (* 3 86400)) now)
                    "3 days ago"))
-    (should (equal (grove-library-relative-time
+    (should (equal (bloom-library-relative-time
                     (time-subtract now (* 20 86400)) now)
                    "Aug 12, 2026"))))
 
-(ert-deftest grove-parity-faces-carry-the-apps-exact-metrics ()
+(ert-deftest bloom-parity-faces-carry-the-apps-exact-metrics ()
   "Every preset declares the parity faces with the app's line heights."
-  (dolist (profile (list (grove-design-profile) (grove-design-light-profile)
-                         (grove-design-dark-profile)))
-    (should (grove-design-parity-available-p profile)))
-  (let* ((styles (plist-get (grove-design-light-profile) :styles))
-         (title (cdr (assoc "grove.t.row-title" styles)))
+  (dolist (profile (list (bloom-design-profile) (bloom-design-light-profile)
+                         (bloom-design-dark-profile)))
+    (should (bloom-design-parity-available-p profile)))
+  (let* ((styles (plist-get (bloom-design-light-profile) :styles))
+         (title (cdr (assoc "bloom.t.row-title" styles)))
          (props (plist-get title :properties)))
     ;; 15 sp at the app's inherited 1.65 em: half the trimmed leading
     ;; restored above and below, and one line box as a minimum height.
@@ -1668,15 +1675,15 @@ checks, run from the foundation's applet tooling."
     (should (equal (plist-get (plist-get props :padding_bottom) :value)
                    "2.625")))
   ;; Folder-tile hairlines carry 40 percent alpha in the literal presets.
-  (let ((tokens (plist-get (grove-design-light-profile) :tokens)))
+  (let ((tokens (plist-get (bloom-design-light-profile) :tokens)))
     (should (equal (plist-get (cdr (assoc "color.edge-green" tokens)) :value)
-                   "#664F7A3A"))))
+                   "#663F8A8F"))))
 
-(ert-deftest grove-notebook-tree-expands-in-place-and-stays-deterministic ()
+(ert-deftest bloom-notebook-tree-expands-in-place-and-stays-deterministic ()
   "Folders expand under their row; the parity root is repeatable."
-  (let* ((folder "grove-folder-projects")
-         (grove-library-expanded-folder-ids nil)
-         (grove-library--snapshot
+  (let* ((folder "bloom-folder-projects")
+         (bloom-library-expanded-folder-ids nil)
+         (bloom-library--snapshot
           `(:notebooks
             ((:id "root-note" :folder-id nil :label "inbox" :file-label "inbox.org"
                   :folder-label "Notebooks" :favorite nil :palette "green"
@@ -1692,37 +1699,37 @@ checks, run from the foundation's applet tooling."
     (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
                (lambda (extension target)
                  (and (equal extension "jetpacs.design") (eq target :app))))
-              ((symbol-function 'grove-library-resolve-folder)
+              ((symbol-function 'bloom-library-resolve-folder)
                (lambda (id) (and (equal id folder) "/tmp/projects/")))
               ((symbol-function 'jetpacs-app-defer-refresh) #'ignore))
       (let ((collapsed (jetpacs-node->canonical-json
-                        (grove-navigation-presented-notebooks-screen nil))))
+                        (bloom-navigation-presented-notebooks-screen nil))))
         (should (string-search "inbox.org" collapsed))
         (should-not (string-search "blog.org" collapsed))
         (should (string-search "5 notes " collapsed))
         (should (string-search " 1 minute ago" collapsed))
         (should (equal collapsed
                        (jetpacs-node->canonical-json
-                        (grove-navigation-presented-notebooks-screen nil)))))
-      (should (eq (grove-navigation--on-folder-toggle
+                        (bloom-navigation-presented-notebooks-screen nil)))))
+      (should (eq (bloom-navigation--on-folder-toggle
                    (list :folder-id folder) nil)
                   'accepted))
       (let ((expanded (jetpacs-node->canonical-json
-                       (grove-navigation-presented-notebooks-screen nil))))
+                       (bloom-navigation-presented-notebooks-screen nil))))
         (should (string-search "blog.org" expanded))
-        (should (string-search "grove.rail" expanded)))
-      (should (eq (grove-navigation--on-folder-toggle
-                   (list :folder-id "grove-folder-gone") nil)
+        (should (string-search "bloom.rail" expanded)))
+      (should (eq (bloom-navigation--on-folder-toggle
+                   (list :folder-id "bloom-folder-gone") nil)
                   'stale)))))
 
-(ert-deftest grove-parity-outline-folds-in-place-and-stays-deterministic ()
+(ert-deftest bloom-parity-outline-folds-in-place-and-stays-deterministic ()
   "The parity outline starts folded, unfolds by heading, and is repeatable."
-  (let* ((notebook "grove-notebook-travel")
-         (grove-navigation--notebook-id notebook)
-         (grove-navigation--outline-expanded (make-hash-table :test #'equal))
-         (grove-navigation--preface-open (make-hash-table :test #'equal))
-         (grove-library--outlines (make-hash-table :test #'equal))
-         (grove-library--snapshot
+  (let* ((notebook "bloom-notebook-travel")
+         (bloom-navigation--notebook-id notebook)
+         (bloom-navigation--outline-expanded (make-hash-table :test #'equal))
+         (bloom-navigation--preface-open (make-hash-table :test #'equal))
+         (bloom-library--outlines (make-hash-table :test #'equal))
+         (bloom-library--snapshot
           `(:notebooks ((:id ,notebook :folder-id nil :label "travel"
                              :file-label "travel.org" :folder-label "Notebooks"))
             :folders nil :total-count 1 :truncated nil :error nil)))
@@ -1736,29 +1743,38 @@ checks, run from the foundation's applet tooling."
                 (:id "h2" :parent-id "h1" :level 2 :title "Book Lisbon apartment"
                      :todo "TODO" :priority "A" :tags ("travel" "lodging")
                      :deadline-label "Aug 30")))
-             grove-library--outlines)
+             bloom-library--outlines)
     (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
                (lambda (extension target)
                  (and (equal extension "jetpacs.design") (eq target :app))))
               ((symbol-function 'jetpacs-app-defer-refresh) #'ignore))
       (let ((folded (jetpacs-node->canonical-json
-                     (grove-navigation-presented-outline-screen
+                     (bloom-navigation-presented-outline-screen
                       (jetpacs-view-switch "notebooks")))))
         (should (string-search "Portugal trip" folded))
         (should-not (string-search "Book Lisbon apartment" folded))
         (should (string-search "PREFACE" folded))
         (should (string-search "\"icon\":\"arrow_back\"" folded))
-        (should (string-search "grove.outline.menu" folded))
+        (should (string-search "bloom.outline.menu" folded))
         (should (equal folded
                        (jetpacs-node->canonical-json
-                        (grove-navigation-presented-outline-screen
+                        (bloom-navigation-presented-outline-screen
                          (jetpacs-view-switch "notebooks"))))))
-      (should (eq (grove-navigation--on-outline-toggle '(:heading-id "h1") nil)
+      (should (eq (bloom-navigation--on-outline-toggle '(:heading-id "h1") nil)
                   'accepted))
       (let ((open (jetpacs-node->canonical-json
-                   (grove-navigation-presented-outline-screen
+                   (bloom-navigation-presented-outline-screen
                     (jetpacs-view-switch "notebooks")))))
         (should (string-search "Book Lisbon apartment" open))
         (should (string-search "[#A]" open))
-        (should (string-search "grove.chip.warning" open))
+        (should (string-search "bloom.chip.warning" open))
         (should (string-search "Aug 30" open))))))
+
+(ert-deftest bloom-grove-names-migrate ()
+  "Former Grove options alias their Bloom names and stored ids migrate."
+  (should (eq (indirect-variable 'grove-saved-views) 'bloom-saved-views))
+  (should (eq (indirect-variable 'grove-library-favorite-ids)
+              'bloom-library-favorite-ids))
+  (should (equal (bloom-core-migrate-id "grove-notebook-0123") "bloom-notebook-0123"))
+  (should (equal (bloom-core-migrate-id "bloom-folder-ab") "bloom-folder-ab"))
+  (should-not (bloom-core-migrate-id nil)))

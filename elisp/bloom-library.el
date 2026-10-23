@@ -1,11 +1,11 @@
-;;; grove-library.el --- Grove notebook and document model -*- lexical-binding: t; -*-
+;;; bloom-library.el --- Bloom notebook and document model -*- lexical-binding: t; -*-
 
 ;; SPDX-License-Identifier: Apache-2.0
 ;; Package-Requires: ((emacs "30.1"))
 
 ;;; Commentary:
 
-;; Grove's private projection over the canonical Jetpacs Org scope.  Wire
+;; Bloom's private projection over the canonical Jetpacs Org scope.  Wire
 ;; records contain opaque ids and display strings only.  Paths, Org refs, and
 ;; live buffers remain in the maps below and can be reconstructed after an
 ;; Emacs restart by rescanning the bounded canonical scope.
@@ -19,119 +19,119 @@
 (require 'ebp-org)
 (require 'jetpacs-files)
 (require 'jetpacs-org-reminders)
-(require 'grove-core)
+(require 'bloom-core)
 
-(defcustom grove-library-notebook-limit 300
-  "Maximum Org files retained in Grove's notebook snapshot."
+(defcustom bloom-library-notebook-limit 300
+  "Maximum Org files retained in Bloom's notebook snapshot."
   :type '(integer 1 1000)
-  :group 'grove)
+  :group 'bloom)
 
-(defcustom grove-library-tree-view t
+(defcustom bloom-library-tree-view t
   "Whether Notebooks initially shows folders instead of one flat file list."
   :type 'boolean
-  :group 'grove)
+  :group 'bloom)
 
-(defcustom grove-library-favorite-ids nil
-  "Opaque notebook ids pinned to the top of Grove's library."
+(defcustom bloom-library-favorite-ids nil
+  "Opaque notebook ids pinned to the top of Bloom's library."
   :type '(repeat string)
-  :group 'grove)
+  :group 'bloom)
 
-(defcustom grove-reader-show-drawers nil
-  "Whether Grove's Org reader initially expands drawers."
+(defcustom bloom-reader-show-drawers nil
+  "Whether Bloom's Org reader initially expands drawers."
   :type 'boolean
-  :group 'grove)
+  :group 'bloom)
 
-(defcustom grove-reader-default-mode 'read
-  "Initial Grove document presentation, `read' or `edit'."
+(defcustom bloom-reader-default-mode 'read
+  "Initial Bloom document presentation, `read' or `edit'."
   :type '(choice (const read) (const edit))
-  :group 'grove)
+  :group 'bloom)
 
-(defcustom grove-search-result-limit 100
-  "Maximum canonical Org search results Grove retains."
+(defcustom bloom-search-result-limit 100
+  "Maximum canonical Org search results Bloom retains."
   :type '(integer 1 512)
-  :group 'grove)
+  :group 'bloom)
 
-(defvar grove-library-after-refresh-hook nil
-  "Hook run after Grove replaces a library, outline, or search snapshot.")
+(defvar bloom-library-after-refresh-hook nil
+  "Hook run after Bloom replaces a library, outline, or search snapshot.")
 
-(defvar grove-library--snapshot
+(defvar bloom-library--snapshot
   '(:notebooks nil :folders nil :total-count 0 :truncated nil :error nil)
   "Current presentation-safe notebook snapshot.")
 
-(defvar grove-library--search-snapshot
+(defvar bloom-library--search-snapshot
   '(:query "" :mode "text" :results nil :error nil)
   "Current presentation-safe search snapshot.")
 
-(defvar grove-library--notebook-paths (make-hash-table :test #'equal)
+(defvar bloom-library--notebook-paths (make-hash-table :test #'equal)
   "Opaque notebook id to canonical path.")
 
-(defvar grove-library--folder-paths (make-hash-table :test #'equal)
+(defvar bloom-library--folder-paths (make-hash-table :test #'equal)
   "Opaque folder id to canonical directory path.")
 
-(defvar grove-library--heading-refs (make-hash-table :test #'equal)
+(defvar bloom-library--heading-refs (make-hash-table :test #'equal)
   "Notebook/heading composite key to private Org ref.")
 
-(defvar grove-library--outlines (make-hash-table :test #'equal)
+(defvar bloom-library--outlines (make-hash-table :test #'equal)
   "Opaque notebook id to presentation-safe outline snapshot.")
 
-(defvar grove-library--documents (make-hash-table :test #'equal)
+(defvar bloom-library--documents (make-hash-table :test #'equal)
   "Notebook/heading composite key to private document snapshot.")
 
-(defun grove-library-snapshot ()
-  "Return a defensive copy of Grove's notebook snapshot."
-  (copy-tree grove-library--snapshot))
+(defun bloom-library-snapshot ()
+  "Return a defensive copy of Bloom's notebook snapshot."
+  (copy-tree bloom-library--snapshot))
 
-(defun grove-library-search-snapshot ()
-  "Return a defensive copy of Grove's search snapshot."
-  (copy-tree grove-library--search-snapshot))
+(defun bloom-library-search-snapshot ()
+  "Return a defensive copy of Bloom's search snapshot."
+  (copy-tree bloom-library--search-snapshot))
 
-(defun grove-library--opaque-id (prefix identity)
+(defun bloom-library--opaque-id (prefix identity)
   "Return a stable opaque id using PREFIX and private IDENTITY."
   (concat prefix (substring (secure-hash 'sha256 identity) 0 32)))
 
-(defun grove-library--notebook-id (path)
+(defun bloom-library--notebook-id (path)
   "Return PATH's stable opaque notebook id."
-  (grove-library--opaque-id "grove-notebook-" (file-truename path)))
+  (bloom-library--opaque-id "bloom-notebook-" (file-truename path)))
 
-(defun grove-library--folder-id (path)
+(defun bloom-library--folder-id (path)
   "Return PATH's stable opaque folder id."
-  (grove-library--opaque-id
-   "grove-folder-" (directory-file-name (file-truename path))))
+  (bloom-library--opaque-id
+   "bloom-folder-" (directory-file-name (file-truename path))))
 
-(defun grove-library--heading-id (ref)
+(defun bloom-library--heading-id (ref)
   "Return a stable opaque heading id for private Org REF."
   (let ((file (or (plist-get ref :file) ""))
         (id (plist-get ref :id)))
-    (grove-library--opaque-id
-     "grove-heading-"
+    (bloom-library--opaque-id
+     "bloom-heading-"
      (if (and (stringp id) (not (string-empty-p id)))
          (format "%s|id:%s" file id)
        (format "%s|pos:%s|headline:%s" file
                (or (plist-get ref :pos) 0)
                (or (plist-get ref :headline) ""))))))
 
-(defun grove-library-identify-heading (ref)
-  "Retain private Org REF and return its opaque Grove coordinates.
+(defun bloom-library-identify-heading (ref)
+  "Retain private Org REF and return its opaque Bloom coordinates.
 The return value is `(:notebook-id ID :heading-id ID)'.  REF and its path
-remain only in Grove's Emacs-side map; nil means the ref is outside the
+remain only in Bloom's Emacs-side map; nil means the ref is outside the
 canonical notebook library or cannot currently be resolved."
   (when-let* ((ref (and (listp ref) (copy-tree ref)))
               (file (plist-get ref :file))
               (canonical (ebp-org-file-allowed-p file)))
     (plist-put ref :file canonical)
-    (let ((notebook-id (grove-library--notebook-id canonical))
-          (heading-id (grove-library--heading-id ref)))
-      (when (grove-library-resolve-notebook notebook-id)
-        (puthash (grove-library--heading-key notebook-id heading-id)
-                 ref grove-library--heading-refs)
+    (let ((notebook-id (bloom-library--notebook-id canonical))
+          (heading-id (bloom-library--heading-id ref)))
+      (when (bloom-library-resolve-notebook notebook-id)
+        (puthash (bloom-library--heading-key notebook-id heading-id)
+                 ref bloom-library--heading-refs)
         (list :notebook-id notebook-id :heading-id heading-id)))))
 
-(defun grove-library--heading-key (notebook-id heading-id)
+(defun bloom-library--heading-key (notebook-id heading-id)
   "Return the private map key for NOTEBOOK-ID and HEADING-ID."
   (concat notebook-id "|" heading-id))
 
-(defun grove-library--org-root ()
-  "Return Grove's preferred canonical Org root, or nil."
+(defun bloom-library--org-root ()
+  "Return Bloom's preferred canonical Org root, or nil."
   (let ((candidate (and (boundp 'org-directory)
                         (stringp org-directory)
                         (expand-file-name org-directory))))
@@ -139,7 +139,7 @@ canonical notebook library or cannot currently be resolved."
                (not (file-remote-p candidate)))
       (file-name-as-directory (file-truename candidate)))))
 
-(defun grove-library--display-folder (directory root)
+(defun bloom-library--display-folder (directory root)
   "Return a safe display label for DIRECTORY relative to ROOT."
   (let ((relative
          (and root (file-in-directory-p directory root)
@@ -149,7 +149,7 @@ canonical notebook library or cannot currently be resolved."
      (relative (directory-file-name relative))
      (t (file-name-nondirectory (directory-file-name directory))))))
 
-(defun grove-library--directory-chain (directory root)
+(defun bloom-library--directory-chain (directory root)
   "Return DIRECTORY and its visible ancestors below ROOT.
 When DIRECTORY is outside ROOT, return only DIRECTORY."
   (let ((current (directory-file-name directory))
@@ -163,7 +163,7 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
       (push current result))
     (nreverse result)))
 
-(defun grove-library--folder-records (directories root)
+(defun bloom-library--folder-records (directories root)
   "Return safe folder records for canonical DIRECTORIES relative to ROOT."
   (let ((known (make-hash-table :test #'equal))
         records)
@@ -171,19 +171,19 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
       (puthash (directory-file-name directory) t known))
     (dolist (directory directories)
       (let* ((clean (directory-file-name directory))
-             (id (grove-library--folder-id clean))
+             (id (bloom-library--folder-id clean))
              (parent (directory-file-name (file-name-directory clean)))
              (root-clean (and root (directory-file-name root)))
              (parent-id (and (not (equal clean root-clean))
                              (gethash parent known)
                              (not (equal parent root-clean))
-                             (grove-library--folder-id parent))))
+                             (bloom-library--folder-id parent))))
         (unless (and root-clean (equal clean root-clean))
           (puthash id (file-name-as-directory clean)
-                   grove-library--folder-paths)
+                   bloom-library--folder-paths)
           (push (list :id id :parent-id parent-id
                       :label (file-name-nondirectory clean)
-                      :path-label (grove-library--display-folder clean root))
+                      :path-label (bloom-library--display-folder clean root))
                 records))))
     (sort records
           (lambda (left right)
@@ -192,23 +192,23 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
 
 ;;;; Facts the Android app shows on each Notebooks row
 
-(defcustom grove-library-expanded-folder-ids nil
+(defcustom bloom-library-expanded-folder-ids nil
   "Opaque folder ids whose subtree Notebooks shows expanded in place."
   :type '(repeat string)
-  :group 'grove)
+  :group 'bloom)
 
-(defconst grove-library-drill-threshold 20
+(defconst bloom-library-drill-threshold 20
   "Folders holding more files than this open as their own screen.
 The Android app's `FOLDER_DRILL_THRESHOLD': a smaller folder expands in place.")
 
-(defconst grove-library--palette-keys
+(defconst bloom-library--palette-keys
   '("green" "blue" "amber" "red" "accent" "neutral")
   "Monogram palette keys in the order the app's name hash indexes them.")
 
-(defconst grove-library--note-scan-bytes 2000000
+(defconst bloom-library--note-scan-bytes 2000000
   "Bytes of a notebook read when counting its notes.")
 
-(defun grove-library--java-hash (string)
+(defun bloom-library--java-hash (string)
   "Return Java's `String.hashCode' of STRING as a non-negative integer.
 The app keys a notebook's default monogram color on this hash of its
 vault-relative path, so the same file gets the same color in both."
@@ -222,22 +222,22 @@ vault-relative path, so the same file gets the same color in both."
     (when (>= hash #x80000000) (setq hash (- hash #x100000000)))
     (if (= hash (- #x80000000)) 0 (abs hash))))
 
-(defun grove-library-palette-key (relative)
+(defun bloom-library-palette-key (relative)
   "Return the default monogram palette key for vault-relative path RELATIVE."
-  (nth (% (grove-library--java-hash relative) 6) grove-library--palette-keys))
+  (nth (% (bloom-library--java-hash relative) 6) bloom-library--palette-keys))
 
-(defun grove-library--monogram (name)
+(defun bloom-library--monogram (name)
   "Return the uppercase first character of NAME, or a bullet when blank."
   (let ((trimmed (string-trim (or name ""))))
     (if (string-empty-p trimmed) "•"
       (upcase (substring trimmed 0 1)))))
 
-(defun grove-library--note-count (file)
+(defun bloom-library--note-count (file)
   "Return FILE's note count as the app computes it.
 Top-level headings are notes; text before the first heading, other than
 blank lines, keywords, and drawers, counts as one more."
   (with-temp-buffer
-    (insert-file-contents file nil 0 grove-library--note-scan-bytes)
+    (insert-file-contents file nil 0 bloom-library--note-scan-bytes)
     (goto-char (point-min))
     (let ((count 0) (intro nil) (in-drawer nil) (before-heading t))
       (while (not (eobp))
@@ -258,11 +258,11 @@ blank lines, keywords, and drawers, counts as one more."
         (forward-line 1))
       (+ count (if intro 1 0)))))
 
-(defun grove-library--plural (count singular)
+(defun bloom-library--plural (count singular)
   "Return COUNT followed by SINGULAR, pluralized with an s."
   (format "%d %s%s" count singular (if (= count 1) "" "s")))
 
-(defun grove-library-relative-time (time now)
+(defun bloom-library-relative-time (time now)
   "Return TIME relative to NOW the way Android's `DateUtils' prints it.
 Under a minute is zero minutes; then minutes, hours, and calendar days, with
 yesterday by name; a week or more is the abbreviated date."
@@ -270,42 +270,42 @@ yesterday by name; a week or more is the abbreviated date."
          (days (- (time-to-days now) (time-to-days time))))
     (cond
      ((< seconds 3600)
-      (format "%s ago" (grove-library--plural (floor seconds 60) "minute")))
+      (format "%s ago" (bloom-library--plural (floor seconds 60) "minute")))
      ((< seconds 86400)
-      (format "%s ago" (grove-library--plural (floor seconds 3600) "hour")))
+      (format "%s ago" (bloom-library--plural (floor seconds 3600) "hour")))
      ((< seconds 604800)
       (if (<= days 1) "Yesterday"
-        (format "%s ago" (grove-library--plural days "day"))))
+        (format "%s ago" (bloom-library--plural days "day"))))
      (t (format-time-string "%b %-d, %Y" time)))))
 
-(defun grove-library--relative-path (path root)
+(defun bloom-library--relative-path (path root)
   "Return PATH relative to ROOT, or its plain name outside ROOT."
   (if (and root (file-in-directory-p path root))
       (directory-file-name (file-relative-name path root))
     (file-name-nondirectory (directory-file-name path))))
 
-(defun grove-library--file-facts (file root now)
+(defun bloom-library--file-facts (file root now)
   "Return FILE's row facts relative to ROOT, with its age measured at NOW."
-  (let* ((relative (grove-library--relative-path file root))
+  (let* ((relative (bloom-library--relative-path file root))
          (modified (file-attribute-modification-time (file-attributes file)))
-         (notes (condition-case nil (grove-library--note-count file)
+         (notes (condition-case nil (bloom-library--note-count file)
                   (error nil))))
     (list :relative relative
-          :palette (grove-library-palette-key relative)
-          :monogram (grove-library--monogram (file-name-nondirectory file))
+          :palette (bloom-library-palette-key relative)
+          :monogram (bloom-library--monogram (file-name-nondirectory file))
           :note-count notes
-          :modified-label (grove-library-relative-time modified now)
+          :modified-label (bloom-library-relative-time modified now)
           :directory-label
           (let ((dir (file-name-directory relative)))
             (and dir (not (string-empty-p dir)) dir)))))
 
-(defun grove-library--count-folders (folders notebooks)
+(defun bloom-library--count-folders (folders notebooks)
   "Return FOLDERS with file, subfolder, depth, and palette facts.
 Counts use NOTEBOOKS, so they reflect the bounded snapshot."
   (mapcar
    (lambda (folder)
      (let* ((id (plist-get folder :id))
-            (path (gethash id grove-library--folder-paths))
+            (path (gethash id bloom-library--folder-paths))
             (relative (plist-get folder :path-label)))
        (append
         folder
@@ -314,7 +314,7 @@ Counts use NOTEBOOKS, so they reflect the bounded snapshot."
          (cl-count-if
           (lambda (notebook)
             (let ((file (gethash (plist-get notebook :id)
-                                 grove-library--notebook-paths)))
+                                 bloom-library--notebook-paths)))
               (and path file (file-in-directory-p file path))))
           notebooks)
          :folder-count
@@ -322,34 +322,39 @@ Counts use NOTEBOOKS, so they reflect the bounded snapshot."
                    :key (lambda (other) (plist-get other :parent-id))
                    :test #'equal)
          :depth (1+ (cl-count ?/ relative))
-         :palette (grove-library-palette-key relative)
-         :expanded (and (member id grove-library-expanded-folder-ids) t)))))
+         :palette (bloom-library-palette-key relative)
+         :expanded (and (member id bloom-library-expanded-folder-ids) t)))))
    folders))
 
-(defun grove-library-set-folder-expanded (folder-id expanded)
+(defun bloom-library-set-folder-expanded (folder-id expanded)
   "Record FOLDER-ID as EXPANDED or collapsed in the Notebooks tree."
-  (setq grove-library-expanded-folder-ids
+  (setq bloom-library-expanded-folder-ids
         (if expanded
-            (cl-adjoin folder-id grove-library-expanded-folder-ids
+            (cl-adjoin folder-id bloom-library-expanded-folder-ids
                        :test #'equal)
-          (remove folder-id grove-library-expanded-folder-ids)))
-  (setq grove-library--snapshot
-        (plist-put (copy-tree grove-library--snapshot) :folders
+          (remove folder-id bloom-library-expanded-folder-ids)))
+  (setq bloom-library--snapshot
+        (plist-put (copy-tree bloom-library--snapshot) :folders
                    (mapcar (lambda (folder)
                              (if (equal (plist-get folder :id) folder-id)
                                  (plist-put (copy-sequence folder)
                                             :expanded (and expanded t))
                                folder))
-                           (plist-get grove-library--snapshot :folders)))))
+                           (plist-get bloom-library--snapshot :folders)))))
 
-(defun grove-library--notebook-record (id)
+(defun bloom-library--notebook-record (id)
   "Return the safe notebook record for ID, or nil."
-  (cl-find id (plist-get grove-library--snapshot :notebooks)
+  (cl-find id (plist-get bloom-library--snapshot :notebooks)
            :key (lambda (record) (plist-get record :id)) :test #'equal))
 
-(defun grove-library-refresh ()
-  "Refresh Grove's bounded notebook snapshot from the canonical Org scope."
+(defun bloom-library-refresh ()
+  "Refresh Bloom's bounded notebook snapshot from the canonical Org scope."
   (interactive)
+  ;; Ids stored under the Grove name carry its prefix; the hash is unchanged.
+  (setq bloom-library-favorite-ids
+        (mapcar #'bloom-core-migrate-id bloom-library-favorite-ids)
+        bloom-library-expanded-folder-ids
+        (mapcar #'bloom-core-migrate-id bloom-library-expanded-folder-ids))
   (condition-case err
       (let* ((scope (sort (delete-dups
                            (delq nil
@@ -363,36 +368,36 @@ Counts use NOTEBOOKS, so they reflect the bounded snapshot."
                           #'string-lessp))
              (now (current-time))
              (total (length scope))
-             (files (seq-take scope grove-library-notebook-limit))
-             (root (grove-library--org-root))
+             (files (seq-take scope bloom-library-notebook-limit))
+             (root (bloom-library--org-root))
              (directories
               (sort
                (delete-dups
                 (apply #'append
                        (mapcar
                         (lambda (file)
-                          (grove-library--directory-chain
+                          (bloom-library--directory-chain
                            (file-name-directory file) root))
                         files)))
                #'string-lessp))
              records)
-        (clrhash grove-library--notebook-paths)
-        (clrhash grove-library--folder-paths)
+        (clrhash bloom-library--notebook-paths)
+        (clrhash bloom-library--folder-paths)
         (dolist (file files)
-          (let* ((id (grove-library--notebook-id file))
+          (let* ((id (bloom-library--notebook-id file))
                  (directory (file-name-directory file))
                  (folder-id
                   (unless (and root (file-equal-p directory root))
-                    (grove-library--folder-id directory))))
-            (puthash id file grove-library--notebook-paths)
+                    (bloom-library--folder-id directory))))
+            (puthash id file bloom-library--notebook-paths)
             (push (append
                    (list :id id :folder-id folder-id
                          :label (file-name-base file)
                          :file-label (file-name-nondirectory file)
                          :folder-label
-                         (grove-library--display-folder directory root)
-                         :favorite (and (member id grove-library-favorite-ids) t))
-                   (grove-library--file-facts file root now))
+                         (bloom-library--display-folder directory root)
+                         :favorite (and (member id bloom-library-favorite-ids) t))
+                   (bloom-library--file-facts file root now))
                   records)))
         (setq records
               (sort records
@@ -406,75 +411,75 @@ Counts use NOTEBOOKS, so they reflect the bounded snapshot."
                          (format "%s|%s|%s" rf
                                  (downcase (plist-get right :folder-label))
                                  (downcase (plist-get right :label))))))))
-        (setq grove-library--snapshot
+        (setq bloom-library--snapshot
               (list :notebooks records
-                    :folders (grove-library--count-folders
-                              (grove-library--folder-records directories root)
+                    :folders (bloom-library--count-folders
+                              (bloom-library--folder-records directories root)
                               records)
                     :total-count total
                     :truncated (> total (length files))
                     :error nil))
-        (run-hooks 'grove-library-after-refresh-hook)
+        (run-hooks 'bloom-library-after-refresh-hook)
         t)
     (error
-     (message "grove-library: refresh failed (%s)" (car err))
-     (setq grove-library--snapshot
-           (plist-put (copy-tree grove-library--snapshot)
+     (message "bloom-library: refresh failed (%s)" (car err))
+     (setq bloom-library--snapshot
+           (plist-put (copy-tree bloom-library--snapshot)
                       :error "Notebook library unavailable"))
-     (run-hooks 'grove-library-after-refresh-hook)
+     (run-hooks 'bloom-library-after-refresh-hook)
      nil)))
 
-(defun grove-library-resolve-notebook (notebook-id)
+(defun bloom-library-resolve-notebook (notebook-id)
   "Return NOTEBOOK-ID's canonical path, rebuilding the map once if needed."
   (when (stringp notebook-id)
-    (or (gethash notebook-id grove-library--notebook-paths)
-        (and (grove-library-refresh)
-             (gethash notebook-id grove-library--notebook-paths)))))
+    (or (gethash notebook-id bloom-library--notebook-paths)
+        (and (bloom-library-refresh)
+             (gethash notebook-id bloom-library--notebook-paths)))))
 
-(defun grove-library-resolve-folder (folder-id)
+(defun bloom-library-resolve-folder (folder-id)
   "Return FOLDER-ID's canonical path; nil identifies the Org root."
   (if (null folder-id)
-      (or (grove-library--org-root)
+      (or (bloom-library--org-root)
           (when-let* ((file (car (sort
                                   (copy-sequence
                                    (hash-table-values
-                                    grove-library--notebook-paths))
+                                    bloom-library--notebook-paths))
                                   #'string-lessp))))
             (file-name-directory file)))
-    (or (gethash folder-id grove-library--folder-paths)
-        (and (grove-library-refresh)
-             (gethash folder-id grove-library--folder-paths)))))
+    (or (gethash folder-id bloom-library--folder-paths)
+        (and (bloom-library-refresh)
+             (gethash folder-id bloom-library--folder-paths)))))
 
-(defun grove-library-notebooks-in-folder (&optional folder-id flat)
+(defun bloom-library-notebooks-in-folder (&optional folder-id flat)
   "Return safe notebooks directly in FOLDER-ID, or every notebook when FLAT."
-  (let ((records (plist-get grove-library--snapshot :notebooks)))
+  (let ((records (plist-get bloom-library--snapshot :notebooks)))
     (if flat records
       (seq-filter (lambda (record)
                     (equal (plist-get record :folder-id) folder-id))
                   records))))
 
-(defun grove-library-folders-in-folder (&optional folder-id)
+(defun bloom-library-folders-in-folder (&optional folder-id)
   "Return safe folders directly below FOLDER-ID."
   (seq-filter (lambda (record)
                 (equal (plist-get record :parent-id) folder-id))
-              (plist-get grove-library--snapshot :folders)))
+              (plist-get bloom-library--snapshot :folders)))
 
-(defun grove-library--forget-heading-state (notebook-id)
+(defun bloom-library--forget-heading-state (notebook-id)
   "Forget private heading and document state owned by NOTEBOOK-ID."
   (let ((prefix (concat notebook-id "|"))
         dead-refs dead-documents)
     (maphash (lambda (key _value)
                (when (string-prefix-p prefix key) (push key dead-refs)))
-             grove-library--heading-refs)
+             bloom-library--heading-refs)
     (maphash (lambda (key _value)
                (when (string-prefix-p prefix key)
                  (push key dead-documents)))
-             grove-library--documents)
-    (dolist (key dead-refs) (remhash key grove-library--heading-refs))
-    (dolist (key dead-documents) (remhash key grove-library--documents))
-    (remhash notebook-id grove-library--outlines)))
+             bloom-library--documents)
+    (dolist (key dead-refs) (remhash key bloom-library--heading-refs))
+    (dolist (key dead-documents) (remhash key bloom-library--documents))
+    (remhash notebook-id bloom-library--outlines)))
 
-(defconst grove-library--timestamp-re
+(defconst bloom-library--timestamp-re
   (concat "[<[]\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)"
           "\\(?: +[^ 0-9>]+\\)?"
           "\\(?: +\\([0-9]\\{1,2\\}:[0-9]\\{2\\}\\)"
@@ -483,12 +488,12 @@ Counts use NOTEBOOKS, so they reflect the bounded snapshot."
           "\\(?: +\\(--?[0-9]+[hdwmy]\\)\\)?")
   "An Org timestamp: date, optional time range, repeater, and warning.")
 
-(defun grove-library-human-timestamp (timestamp now)
+(defun bloom-library-human-timestamp (timestamp now)
   "Return Org TIMESTAMP as the app's chip prints it, relative to NOW's year.
 `Sep 5 09:00-11:00 +1w': abbreviated month and day, the year only when it
 is not NOW's, then any time range, repeater, and warning.  Nil for nil."
   (when (and (stringp timestamp)
-             (string-match grove-library--timestamp-re timestamp))
+             (string-match bloom-library--timestamp-re timestamp))
     (let* ((year (string-to-number (match-string 1 timestamp)))
            (month (string-to-number (match-string 2 timestamp)))
            (day (string-to-number (match-string 3 timestamp)))
@@ -504,7 +509,7 @@ is not NOW's, then any time range, repeater, and warning.  Nil for nil."
               (when repeat (concat " " repeat))
               (when warn (concat " " warn))))))
 
-(defun grove-library--preview-lines (body)
+(defun bloom-library--preview-lines (body)
   "Return BODY's first three non-blank lines outside drawers, joined.
 The app previews a heading with these, two of them shown, so a third line
 makes the second end in an ellipsis."
@@ -519,7 +524,7 @@ makes the second end in an ellipsis."
     (when lines
       (truncate-string-to-width (string-join (nreverse lines) "\n") 240))))
 
-(defun grove-library--preface-keywords (preface)
+(defun bloom-library--preface-keywords (preface)
   "Return PREFACE's `#+KEY:' lines as (KEY . VALUE) pairs, in order."
   (let (pairs)
     (dolist (line (split-string (or preface "") "\n"))
@@ -528,7 +533,7 @@ makes the second end in an ellipsis."
               pairs)))
     (nreverse pairs)))
 
-(defun grove-library--preface-intro (preface)
+(defun bloom-library--preface-intro (preface)
   "Return PREFACE's prose: lines other than keywords and drawers, trimmed."
   (let (lines drawer)
     (dolist (line (split-string (or preface "") "\n"))
@@ -541,9 +546,9 @@ makes the second end in an ellipsis."
     (let ((text (string-trim (string-join (nreverse lines) "\n"))))
       (unless (string-empty-p text) text))))
 
-(defun grove-library--scan-outline (notebook-id)
+(defun bloom-library--scan-outline (notebook-id)
   "Scan NOTEBOOK-ID and return a safe nested-outline snapshot."
-  (let ((file (or (grove-library-resolve-notebook notebook-id)
+  (let ((file (or (bloom-library-resolve-notebook notebook-id)
                   (signal 'ebp-org-unresolved nil))))
     (with-current-buffer (find-file-noselect file t)
       (unless (derived-mode-p 'org-mode) (org-mode))
@@ -565,7 +570,7 @@ makes the second end in an ellipsis."
          (dolist (record raw)
            (goto-char (plist-get record :pos))
            (let* ((ref (ebp-org-ref-at-point))
-                  (heading-id (grove-library--heading-id ref))
+                  (heading-id (bloom-library--heading-id ref))
                   (level (plist-get record :level))
                   (revision
                    (secure-hash
@@ -573,8 +578,8 @@ makes the second end in an ellipsis."
                     (save-excursion (org-end-of-subtree t t) (point)))))
              (while (and stack (>= (caar stack) level)) (pop stack))
              (let ((parent-id (cdar stack)))
-               (puthash (grove-library--heading-key notebook-id heading-id)
-                        ref grove-library--heading-refs)
+               (puthash (bloom-library--heading-key notebook-id heading-id)
+                        ref bloom-library--heading-refs)
                (push (list :id heading-id :parent-id parent-id :level level
                            :title (plist-get record :title)
                            :todo (plist-get record :todo)
@@ -582,15 +587,15 @@ makes the second end in an ellipsis."
                            :tags (copy-sequence (plist-get record :tags))
                            :deadline (plist-get record :deadline)
                            :deadline-label
-                           (grove-library-human-timestamp
+                           (bloom-library-human-timestamp
                             (plist-get record :deadline) now)
                            :scheduled-label
-                           (grove-library-human-timestamp
+                           (bloom-library-human-timestamp
                             (ignore-errors
                               (org-entry-get (plist-get record :pos)
                                              "SCHEDULED"))
                             now)
-                           :lines (grove-library--preview-lines
+                           :lines (bloom-library--preview-lines
                                    (plist-get record :body))
                            :done (plist-get record :done)
                            :revision revision
@@ -602,39 +607,39 @@ makes the second end in an ellipsis."
                      records))
              (push (cons level heading-id) stack)))
          (list :notebook-id notebook-id
-               :label (plist-get (grove-library--notebook-record notebook-id)
+               :label (plist-get (bloom-library--notebook-record notebook-id)
                                  :label)
                :preface (truncate-string-to-width preface 8192 nil nil t)
-               :keywords (grove-library--preface-keywords preface)
-               :intro (grove-library--preface-intro preface)
+               :keywords (bloom-library--preface-keywords preface)
+               :intro (bloom-library--preface-intro preface)
                :records (nreverse records)
                :buffer name
                :truncated (= (length raw) ebp-org-outline-max-headings)))))))
 
-(defun grove-library-outline-refresh (notebook-id)
+(defun bloom-library-outline-refresh (notebook-id)
   "Refresh and return NOTEBOOK-ID's safe outline snapshot."
-  (grove-library--forget-heading-state notebook-id)
-  (let ((snapshot (grove-library--scan-outline notebook-id)))
-    (puthash notebook-id snapshot grove-library--outlines)
-    (run-hooks 'grove-library-after-refresh-hook)
+  (bloom-library--forget-heading-state notebook-id)
+  (let ((snapshot (bloom-library--scan-outline notebook-id)))
+    (puthash notebook-id snapshot bloom-library--outlines)
+    (run-hooks 'bloom-library-after-refresh-hook)
     (copy-tree snapshot)))
 
-(defun grove-library-outline-snapshot (notebook-id)
+(defun bloom-library-outline-snapshot (notebook-id)
   "Return NOTEBOOK-ID's safe outline snapshot, producing it if absent."
-  (copy-tree (or (gethash notebook-id grove-library--outlines)
-                 (grove-library-outline-refresh notebook-id))))
+  (copy-tree (or (gethash notebook-id bloom-library--outlines)
+                 (bloom-library-outline-refresh notebook-id))))
 
-(defun grove-library-resolve-heading (notebook-id heading-id)
+(defun bloom-library-resolve-heading (notebook-id heading-id)
   "Return private Org ref for NOTEBOOK-ID and HEADING-ID, rebuilding once."
   (when (and (stringp notebook-id) (stringp heading-id))
-    (let ((key (grove-library--heading-key notebook-id heading-id)))
-      (or (copy-tree (gethash key grove-library--heading-refs))
-          (and (ignore-errors (grove-library-outline-refresh notebook-id))
-               (copy-tree (gethash key grove-library--heading-refs)))))))
+    (let ((key (bloom-library--heading-key notebook-id heading-id)))
+      (or (copy-tree (gethash key bloom-library--heading-refs))
+          (and (ignore-errors (bloom-library-outline-refresh notebook-id))
+               (copy-tree (gethash key bloom-library--heading-refs)))))))
 
-(defun grove-library--document-info (notebook-id heading-id)
+(defun bloom-library--document-info (notebook-id heading-id)
   "Return private document information for NOTEBOOK-ID and HEADING-ID."
-  (let ((ref (or (grove-library-resolve-heading notebook-id heading-id)
+  (let ((ref (or (bloom-library-resolve-heading notebook-id heading-id)
                  (signal 'ebp-org-unresolved nil))))
     (let ((marker (ebp-org-resolve-ref ref)))
       (unwind-protect
@@ -667,36 +672,36 @@ makes the second end in an ellipsis."
                      :ref ref))))
         (set-marker marker nil)))))
 
-(defun grove-library-document-refresh (notebook-id heading-id)
+(defun bloom-library-document-refresh (notebook-id heading-id)
   "Refresh and return NOTEBOOK-ID and HEADING-ID's private snapshot."
-  (let ((snapshot (grove-library--document-info notebook-id heading-id)))
-    (puthash (grove-library--heading-key notebook-id heading-id)
-             snapshot grove-library--documents)
-    (run-hooks 'grove-library-after-refresh-hook)
+  (let ((snapshot (bloom-library--document-info notebook-id heading-id)))
+    (puthash (bloom-library--heading-key notebook-id heading-id)
+             snapshot bloom-library--documents)
+    (run-hooks 'bloom-library-after-refresh-hook)
     (copy-tree snapshot)))
 
-(defun grove-library-document-snapshot (notebook-id heading-id)
+(defun bloom-library-document-snapshot (notebook-id heading-id)
   "Return NOTEBOOK-ID and HEADING-ID's snapshot, producing it if absent."
   (copy-tree
-   (or (gethash (grove-library--heading-key notebook-id heading-id)
-                grove-library--documents)
-       (grove-library-document-refresh notebook-id heading-id))))
+   (or (gethash (bloom-library--heading-key notebook-id heading-id)
+                bloom-library--documents)
+       (bloom-library-document-refresh notebook-id heading-id))))
 
-(defun grove-library--search-results (raw)
-  "Convert canonical Org search RAW rows into Grove-safe result records."
-  (unless (plist-get grove-library--snapshot :notebooks)
-    (grove-library-refresh))
+(defun bloom-library--search-results (raw)
+  "Convert canonical Org search RAW rows into Bloom-safe result records."
+  (unless (plist-get bloom-library--snapshot :notebooks)
+    (bloom-library-refresh))
   (let (results)
     (dolist (row raw)
       (let* ((ref (copy-tree (alist-get 'ref row)))
              (file (plist-get ref :file))
-             (notebook-id (and file (grove-library--notebook-id file)))
+             (notebook-id (and file (bloom-library--notebook-id file)))
              (notebook (and notebook-id
-                            (grove-library--notebook-record notebook-id))))
+                            (bloom-library--notebook-record notebook-id))))
         (when notebook
-          (let ((heading-id (grove-library--heading-id ref)))
-            (puthash (grove-library--heading-key notebook-id heading-id)
-                     ref grove-library--heading-refs)
+          (let ((heading-id (bloom-library--heading-id ref)))
+            (puthash (bloom-library--heading-key notebook-id heading-id)
+                     ref bloom-library--heading-refs)
             (push (list :notebook-id notebook-id :heading-id heading-id
                         :headline (or (alist-get 'headline row) "Untitled")
                         :todo (alist-get 'todo row)
@@ -706,7 +711,7 @@ makes the second end in an ellipsis."
                   results)))))
     (nreverse results)))
 
-(defun grove-library--search-view-members (view)
+(defun bloom-library--search-view-members (view)
   "Return presentation-safe active-view members from optional VIEW."
   (when view
     (list :view-id (plist-get view :id)
@@ -714,8 +719,8 @@ makes the second end in an ellipsis."
           :view-source (plist-get view :source)
           :view-kind (plist-get view :kind))))
 
-(defun grove-library-search (query mode &optional view)
-  "Replace Grove's search snapshot using QUERY and MODE.
+(defun bloom-library-search (query mode &optional view)
+  "Replace Bloom's search snapshot using QUERY and MODE.
 MODE is the string \"text\" or \"match\".  Optional VIEW identifies a saved
 view that invoked the query.  A failed expression retains the last successful
 result rows and records a safe validation error."
@@ -723,35 +728,35 @@ result rows and records a safe validation error."
     (user-error "Search requires text or match mode and a string query"))
   (if (string-blank-p query)
       (progn
-        (setq grove-library--search-snapshot
+        (setq bloom-library--search-snapshot
               (list :query "" :mode mode :results nil :error nil))
-        (run-hooks 'grove-library-after-refresh-hook)
+        (run-hooks 'bloom-library-after-refresh-hook)
         t)
     (condition-case err
         (let ((raw (jetpacs-org-mode-search-items
                     query (if (equal mode "match") 'match 'text)
-                    grove-search-result-limit)))
-          (setq grove-library--search-snapshot
+                    bloom-search-result-limit)))
+          (setq bloom-library--search-snapshot
                 (append
                  (list :query query :mode mode
-                       :results (grove-library--search-results raw)
+                       :results (bloom-library--search-results raw)
                        :error nil)
-                 (grove-library--search-view-members view)))
-          (run-hooks 'grove-library-after-refresh-hook)
+                 (bloom-library--search-view-members view)))
+          (run-hooks 'bloom-library-after-refresh-hook)
           t)
       (error
-       (message "grove-library: search failed (%s)" (car err))
-       (setq grove-library--search-snapshot
+       (message "bloom-library: search failed (%s)" (car err))
+       (setq bloom-library--search-snapshot
              (append
               (list :query query :mode mode
                     :results
-                    (plist-get grove-library--search-snapshot :results)
+                    (plist-get bloom-library--search-snapshot :results)
                     :error "Invalid search expression")
-              (grove-library--search-view-members view)))
-       (run-hooks 'grove-library-after-refresh-hook)
+              (bloom-library--search-view-members view)))
+       (run-hooks 'bloom-library-after-refresh-hook)
        nil))))
 
-(defun grove-library-custom-view-search (view-id label kind)
+(defun bloom-library-custom-view-search (view-id label kind)
   "Run opaque Org custom VIEW-ID, displaying LABEL and KIND.
 Native Org settings and ordering come from Jetpacs' reusable custom-view
 projection.  Failure retains the last successful rows behind a safe error."
@@ -759,85 +764,85 @@ projection.  Failure retains the last successful rows behind a safe error."
     (user-error "Custom view identity is invalid"))
   (condition-case err
       (let ((raw (jetpacs-org-mode-custom-view-items
-                  view-id grove-search-result-limit)))
-        (setq grove-library--search-snapshot
+                  view-id bloom-search-result-limit)))
+        (setq bloom-library--search-snapshot
               (list :query "" :mode "text"
-                    :results (grove-library--search-results raw)
+                    :results (bloom-library--search-results raw)
                     :error nil :view-id view-id :view-label label
                     :view-source "emacs" :view-kind kind))
-        (run-hooks 'grove-library-after-refresh-hook)
+        (run-hooks 'bloom-library-after-refresh-hook)
         t)
     (ebp-org-unresolved (signal (car err) (cdr err)))
     (error
-     (message "grove-library: custom view failed (%s)" (car err))
-     (setq grove-library--search-snapshot
+     (message "bloom-library: custom view failed (%s)" (car err))
+     (setq bloom-library--search-snapshot
            (list :query "" :mode "text"
-                 :results (plist-get grove-library--search-snapshot :results)
+                 :results (plist-get bloom-library--search-snapshot :results)
                  :error "Saved view is unavailable"
                  :view-id view-id :view-label label
                  :view-source "emacs" :view-kind kind))
-     (run-hooks 'grove-library-after-refresh-hook)
+     (run-hooks 'bloom-library-after-refresh-hook)
      nil)))
 
-(defun grove-library-search-set-mode (mode)
-  "Set Grove search MODE and clear any saved-view attribution."
+(defun bloom-library-search-set-mode (mode)
+  "Set Bloom search MODE and clear any saved-view attribution."
   (unless (member mode '("text" "match"))
     (user-error "Search mode must be text or match"))
-  (setq grove-library--search-snapshot
-        (list :query (or (plist-get grove-library--search-snapshot :query) "")
+  (setq bloom-library--search-snapshot
+        (list :query (or (plist-get bloom-library--search-snapshot :query) "")
               :mode mode
-              :results (plist-get grove-library--search-snapshot :results)
-              :error (plist-get grove-library--search-snapshot :error)))
-  (run-hooks 'grove-library-after-refresh-hook)
+              :results (plist-get bloom-library--search-snapshot :results)
+              :error (plist-get bloom-library--search-snapshot :error)))
+  (run-hooks 'bloom-library-after-refresh-hook)
   t)
 
-(defun grove-library-clear-active-view (view-id)
+(defun bloom-library-clear-active-view (view-id)
   "Clear saved-view attribution when it currently names VIEW-ID."
-  (when (equal view-id (plist-get grove-library--search-snapshot :view-id))
-    (setq grove-library--search-snapshot
-          (list :query (or (plist-get grove-library--search-snapshot :query) "")
-                :mode (or (plist-get grove-library--search-snapshot :mode)
+  (when (equal view-id (plist-get bloom-library--search-snapshot :view-id))
+    (setq bloom-library--search-snapshot
+          (list :query (or (plist-get bloom-library--search-snapshot :query) "")
+                :mode (or (plist-get bloom-library--search-snapshot :mode)
                           "text")
-                :results (plist-get grove-library--search-snapshot :results)
-                :error (plist-get grove-library--search-snapshot :error)))
-    (run-hooks 'grove-library-after-refresh-hook))
+                :results (plist-get bloom-library--search-snapshot :results)
+                :error (plist-get bloom-library--search-snapshot :error)))
+    (run-hooks 'bloom-library-after-refresh-hook))
   t)
 
-(defun grove-library-toggle-favorite (notebook-id)
-  "Persistently toggle NOTEBOOK-ID in Grove's Customize-backed favorites."
-  (unless (grove-library-resolve-notebook notebook-id)
+(defun bloom-library-toggle-favorite (notebook-id)
+  "Persistently toggle NOTEBOOK-ID in Bloom's Customize-backed favorites."
+  (unless (bloom-library-resolve-notebook notebook-id)
     (signal 'ebp-org-unresolved nil))
-  (let* ((old (copy-sequence grove-library-favorite-ids))
+  (let* ((old (copy-sequence bloom-library-favorite-ids))
          (next (if (member notebook-id old)
                    (delete notebook-id (copy-sequence old))
                  (cons notebook-id old))))
     (condition-case err
         (progn
-          (setq grove-library-favorite-ids next)
-          (customize-save-variable 'grove-library-favorite-ids next)
-          (grove-library-refresh)
+          (setq bloom-library-favorite-ids next)
+          (customize-save-variable 'bloom-library-favorite-ids next)
+          (bloom-library-refresh)
           (member notebook-id next))
       (error
-       (setq grove-library-favorite-ids old)
+       (setq bloom-library-favorite-ids old)
        (signal (car err) (cdr err))))))
 
-(defun grove-library--migrate-favorite (old-id new-id)
+(defun bloom-library--migrate-favorite (old-id new-id)
   "Replace favorite OLD-ID with NEW-ID and persist the new list."
-  (when (member old-id grove-library-favorite-ids)
-    (setq grove-library-favorite-ids
+  (when (member old-id bloom-library-favorite-ids)
+    (setq bloom-library-favorite-ids
           (cons new-id
                 (delete old-id
-                        (copy-sequence grove-library-favorite-ids))))
+                        (copy-sequence bloom-library-favorite-ids))))
     ;; The file move/rename has already completed.  A broken optional
     ;; Customize destination must not revise that durable verdict.
     (condition-case err
         (customize-save-variable
-         'grove-library-favorite-ids grove-library-favorite-ids)
+         'bloom-library-favorite-ids bloom-library-favorite-ids)
       (error
-       (message "grove-library: favorite migration persistence failed (%s)"
+       (message "bloom-library: favorite migration persistence failed (%s)"
                 (car err))))))
 
-(defun grove-library--notebook-filename (name)
+(defun bloom-library--notebook-filename (name)
   "Validate NAME and return its single-segment Org filename."
   (unless (and (stringp name)
                (not (string-blank-p name))
@@ -851,77 +856,77 @@ projection.  Failure retains the last successful rows behind a safe error."
       (user-error "Notebook filename is too long"))
     filename))
 
-(defun grove-library-create-notebook (folder-id name)
+(defun bloom-library-create-notebook (folder-id name)
   "Create NAME under FOLDER-ID and return its new opaque notebook id."
-  (let* ((directory (or (grove-library-resolve-folder folder-id)
+  (let* ((directory (or (bloom-library-resolve-folder folder-id)
                         (signal 'ebp-org-unavailable nil)))
-         (filename (grove-library--notebook-filename name))
+         (filename (bloom-library--notebook-filename name))
          (path (jetpacs-files-create (expand-file-name filename directory))))
-    (grove-library-reset-projections)
-    (grove-library-refresh)
-    (grove-library--notebook-id path)))
+    (bloom-library-reset-projections)
+    (bloom-library-refresh)
+    (bloom-library--notebook-id path)))
 
-(defun grove-library-rename-notebook (notebook-id name)
+(defun bloom-library-rename-notebook (notebook-id name)
   "Rename NOTEBOOK-ID to single-segment NAME and return its new id."
-  (let* ((source (or (grove-library-resolve-notebook notebook-id)
+  (let* ((source (or (bloom-library-resolve-notebook notebook-id)
                      (signal 'ebp-org-unresolved nil)))
-         (filename (grove-library--notebook-filename name))
+         (filename (bloom-library--notebook-filename name))
          (target (jetpacs-files-rename
                   source (expand-file-name filename
                                            (file-name-directory source))))
-         (new-id (grove-library--notebook-id target)))
-    (grove-library--migrate-favorite notebook-id new-id)
-    (grove-library-reset-projections)
-    (grove-library-refresh)
+         (new-id (bloom-library--notebook-id target)))
+    (bloom-library--migrate-favorite notebook-id new-id)
+    (bloom-library-reset-projections)
+    (bloom-library-refresh)
     new-id))
 
-(defun grove-library-move-notebook (notebook-id folder-id)
+(defun bloom-library-move-notebook (notebook-id folder-id)
   "Move NOTEBOOK-ID under FOLDER-ID and return its new opaque id."
-  (let* ((source (or (grove-library-resolve-notebook notebook-id)
+  (let* ((source (or (bloom-library-resolve-notebook notebook-id)
                      (signal 'ebp-org-unresolved nil)))
-         (directory (or (grove-library-resolve-folder folder-id)
+         (directory (or (bloom-library-resolve-folder folder-id)
                         (signal 'ebp-org-unavailable nil)))
          (target (jetpacs-files-move source directory))
-         (new-id (grove-library--notebook-id target)))
-    (grove-library--migrate-favorite notebook-id new-id)
-    (grove-library-reset-projections)
-    (grove-library-refresh)
+         (new-id (bloom-library--notebook-id target)))
+    (bloom-library--migrate-favorite notebook-id new-id)
+    (bloom-library-reset-projections)
+    (bloom-library-refresh)
     new-id))
 
-(defun grove-library-trash-notebook (notebook-id)
+(defun bloom-library-trash-notebook (notebook-id)
   "Move NOTEBOOK-ID to the recoverable platform trash."
-  (let ((path (or (grove-library-resolve-notebook notebook-id)
+  (let ((path (or (bloom-library-resolve-notebook notebook-id)
                   (signal 'ebp-org-unresolved nil))))
     (jetpacs-files-trash path)
-    (setq grove-library-favorite-ids
-          (delete notebook-id (copy-sequence grove-library-favorite-ids)))
+    (setq bloom-library-favorite-ids
+          (delete notebook-id (copy-sequence bloom-library-favorite-ids)))
     (condition-case err
         (customize-save-variable
-         'grove-library-favorite-ids grove-library-favorite-ids)
+         'bloom-library-favorite-ids bloom-library-favorite-ids)
       (error
-       (message "grove-library: favorite cleanup persistence failed (%s)"
+       (message "bloom-library: favorite cleanup persistence failed (%s)"
                 (car err))))
-    (grove-library-reset-projections)
-    (grove-library-refresh)
+    (bloom-library-reset-projections)
+    (bloom-library-refresh)
     t))
 
-(defun grove-library-reset-projections ()
+(defun bloom-library-reset-projections ()
   "Forget derived outline, document, heading, and search projections."
-  (clrhash grove-library--heading-refs)
-  (clrhash grove-library--outlines)
-  (clrhash grove-library--documents)
-  (setq grove-library--search-snapshot
+  (clrhash bloom-library--heading-refs)
+  (clrhash bloom-library--outlines)
+  (clrhash bloom-library--documents)
+  (setq bloom-library--search-snapshot
         '(:query "" :mode "text" :results nil :error nil)))
 
-(defun grove-library-reset ()
-  "Reset every private Grove library map and snapshot."
-  (clrhash grove-library--notebook-paths)
-  (clrhash grove-library--folder-paths)
-  (grove-library-reset-projections)
-  (setq grove-library--snapshot
+(defun bloom-library-reset ()
+  "Reset every private Bloom library map and snapshot."
+  (clrhash bloom-library--notebook-paths)
+  (clrhash bloom-library--folder-paths)
+  (bloom-library-reset-projections)
+  (setq bloom-library--snapshot
         '(:notebooks nil :folders nil :total-count 0 :truncated nil
                      :error nil))
   t)
 
-(provide 'grove-library)
-;;; grove-library.el ends here
+(provide 'bloom-library)
+;;; bloom-library.el ends here
