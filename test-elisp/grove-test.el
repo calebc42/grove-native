@@ -6,6 +6,7 @@
 (require 'cl-lib)
 (require 'org)
 (require 'grove)
+(grove-register)  ; `require' only loads
 
 (defconst grove-test--now (encode-time 0 30 9 1 9 2026)
   "Stable local time used by Grove snapshot tests.")
@@ -1594,6 +1595,22 @@ reminder projection can never disagree."
               'jetpacs-org-reminders-item-hm))
   (should (equal (grove-org--item-time " 9:05...... ") "09:05"))
   (should-not (grove-org--item-time "all day")))
+
+(ert-deftest grove-lifecycle-is-symmetric ()
+  "Loading grove.el registers nothing, and grove-unregister undoes
+everything grove-register did: the trusted launcher's two lifecycle
+checks, run from the foundation's applet tooling."
+  (require 'jetpacs-devtools)
+  (load (expand-file-name "../jetpacs-applet-mcp/jetpacs-applet-tooling.el"
+                          (file-name-directory
+                           (locate-library "jetpacs-surfaces")))
+        nil 'nomessage)
+  (should-not (jetpacs-applet-tooling-load-recording-registrations
+               (locate-library "grove.el" t)))
+  (let ((report (jetpacs-applet-tooling-check-lifecycle-symmetry "grove")))
+    (should (string-match-p "Status: SYMMETRIC" report))
+    (should (string-match-p "Registered on entry: yes" report)))
+  (should (assoc "grove" jetpacs-apps--registry)))
 
 (provide 'grove-test)
 ;;; grove-test.el ends here

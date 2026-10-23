@@ -10,6 +10,10 @@
 ;; contributes the mobile information architecture and presentation: a
 ;; Notebooks-first app surface, native outline/reader/editor/search screens,
 ;; capture affordances, rich reveal-first swipes, and two generic widgets.
+;;
+;; `require' only loads: nothing registers at load.  The `grove' command
+;; or the Apps screen activates the app; a desktop init that loads Grove
+;; adds `(grove-register)' after the `require'.
 
 ;;; Code:
 
@@ -188,12 +192,11 @@ app entry.  The module unregisters below reset state only they hold."
   (grove-design-unregister)
   t)
 
-(grove-register)
-
 ;;;###autoload
 (defun grove ()
-  "Open Grove on the connected Jetpacs device."
+  "Register Grove and open it on the connected Jetpacs device."
   (interactive)
+  (grove-register)
   (jetpacs-apps-seed-current grove-owner "notebooks")
   (jetpacs-chrome-reset-screens grove-owner))
 
