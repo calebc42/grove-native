@@ -167,14 +167,8 @@ the Org agenda read; planning builders only consume its explicit result."
                     (or (plist-get ref :headline) "")))))
     (concat "grove-item-" (substring (secure-hash 'sha256 identity) 0 32))))
 
-(defun grove-org--item-time (raw)
-  "Normalize agenda time-grid RAW to HH:MM, or nil."
-  (when (stringp raw)
-    (let ((text (string-trim raw)))
-      (when (string-match
-             "\\`\\([0-9]\\{1,2\\}\\):\\([0-9]\\{2\\}\\)" text)
-        (format "%02d:%s" (string-to-number (match-string 1 text))
-                (match-string 2 text))))))
+(defalias 'grove-org--item-time #'jetpacs-org-reminders-item-hm
+  "Normalize agenda time-grid RAW to HH:MM, or nil (the foundation's).")
 
 (defun grove-org--item-identity (item)
   "Return ITEM's stable deduplication identity."

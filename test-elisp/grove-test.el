@@ -1587,5 +1587,13 @@ is tapped, from the captured deadline, never baked into the tree."
                    '(:field "unknown" :value t) nil)
                   'rejected)))))
 
+(ert-deftest grove-org-item-time-is-the-foundation-formatter ()
+  "Grove's agenda clock text is the foundation's, so its cards and the
+reminder projection can never disagree."
+  (should (eq (symbol-function 'grove-org--item-time)
+              'jetpacs-org-reminders-item-hm))
+  (should (equal (grove-org--item-time " 9:05...... ") "09:05"))
+  (should-not (grove-org--item-time "all day")))
+
 (provide 'grove-test)
 ;;; grove-test.el ends here
