@@ -197,6 +197,13 @@ When DIRECTORY is outside ROOT, return only DIRECTORY."
   :type '(repeat string)
   :group 'bloom)
 
+(defcustom bloom-library-tree-defaults-applied nil
+  "Non-nil once Notebooks has chosen its first-open folder expansion.
+Like the app, the first refresh that finds notebooks expands every folder
+holding a planned note, and later refreshes leave expansion to the user."
+  :type 'boolean
+  :group 'bloom)
+
 (defconst bloom-library-drill-threshold 20
   "Folders holding more files than this open as their own screen.
 The Android app's `FOLDER_DRILL_THRESHOLD': a smaller folder expands in place.")
@@ -284,6 +291,43 @@ yesterday by name; a week or more is the abbreviated date."
       (directory-file-name (file-relative-name path root))
     (file-name-nondirectory (directory-file-name path))))
 
+(defun bloom-library--planned-p (file)
+  "Return non-nil when FILE holds a SCHEDULED or DEADLINE planning line."
+  (condition-case nil
+      (with-temp-buffer
+        (insert-file-contents file nil 0 bloom-library--note-scan-bytes)
+        (goto-char (point-min))
+        (re-search-forward "^[ \t]*\\(?:CLOSED:.*\\)?\\(?:SCHEDULED\\|DEADLINE\\):"
+                           nil t))
+    (error nil)))
+
+(defun bloom-library--persist (symbol value)
+  "Set SYMBOL to VALUE and save it with Customize when Emacs can.
+A batch or `emacs -Q' session keeps the value for the session only."
+  (set symbol value)
+  (ignore-errors (customize-save-variable symbol value)))
+
+(defun bloom-library--apply-tree-defaults (records)
+  "Choose the first-open folder expansion from notebook RECORDS, once.
+Every folder that, at any depth, holds a planned note opens; the rest stay
+folded.  It runs only when RECORDS is non-empty, so a pre-sync scan of an
+empty vault does not record an empty choice."
+  (when (and records (not bloom-library-tree-defaults-applied))
+    (let ((root (bloom-library--org-root)) open)
+      (dolist (record records)
+        (when (plist-get record :planned)
+          (let ((file (gethash (plist-get record :id)
+                               bloom-library--notebook-paths)))
+            (when file
+              (dolist (directory (bloom-library--directory-chain
+                                  (file-name-directory file) root))
+                (unless (and root (file-equal-p directory root))
+                  (cl-pushnew (bloom-library--folder-id directory) open
+                              :test #'equal)))))))
+      (bloom-library--persist 'bloom-library-expanded-folder-ids
+                              (sort open #'string<))
+      (bloom-library--persist 'bloom-library-tree-defaults-applied t))))
+
 (defun bloom-library--file-facts (file root now)
   "Return FILE's row facts relative to ROOT, with its age measured at NOW."
   (let* ((relative (bloom-library--relative-path file root))
@@ -291,6 +335,7 @@ yesterday by name; a week or more is the abbreviated date."
          (notes (condition-case nil (bloom-library--note-count file)
                   (error nil))))
     (list :relative relative
+          :planned (bloom-library--planned-p file)
           :palette (bloom-library-palette-key relative)
           :monogram (bloom-library--monogram (file-name-nondirectory file))
           :note-count notes
@@ -327,12 +372,13 @@ Counts use NOTEBOOKS, so they reflect the bounded snapshot."
    folders))
 
 (defun bloom-library-set-folder-expanded (folder-id expanded)
-  "Record FOLDER-ID as EXPANDED or collapsed in the Notebooks tree."
-  (setq bloom-library-expanded-folder-ids
-        (if expanded
-            (cl-adjoin folder-id bloom-library-expanded-folder-ids
-                       :test #'equal)
-          (remove folder-id bloom-library-expanded-folder-ids)))
+  "Record FOLDER-ID as EXPANDED or collapsed in the Notebooks tree.
+The choice persists, as the app's does."
+  (bloom-library--persist
+   'bloom-library-expanded-folder-ids
+   (if expanded
+       (cl-adjoin folder-id bloom-library-expanded-folder-ids :test #'equal)
+     (remove folder-id bloom-library-expanded-folder-ids)))
   (setq bloom-library--snapshot
         (plist-put (copy-tree bloom-library--snapshot) :folders
                    (mapcar (lambda (folder)
@@ -411,6 +457,7 @@ Counts use NOTEBOOKS, so they reflect the bounded snapshot."
                          (format "%s|%s|%s" rf
                                  (downcase (plist-get right :folder-label))
                                  (downcase (plist-get right :label))))))))
+        (bloom-library--apply-tree-defaults records)
         (setq bloom-library--snapshot
               (list :notebooks records
                     :folders (bloom-library--count-folders

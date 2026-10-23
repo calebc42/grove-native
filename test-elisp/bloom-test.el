@@ -1778,3 +1778,40 @@ checks, run from the foundation's applet tooling."
   (should (equal (bloom-core-migrate-id "grove-notebook-0123") "bloom-notebook-0123"))
   (should (equal (bloom-core-migrate-id "bloom-folder-ab") "bloom-folder-ab"))
   (should-not (bloom-core-migrate-id nil)))
+
+(ert-deftest bloom-library-first-open-expands-planned-folders-once ()
+  "The first refresh with notebooks opens folders holding planned notes."
+  (let* ((root (make-temp-file "bloom-tree" t))
+         (org-directory root)
+         (bloom-library-tree-defaults-applied nil)
+         (bloom-library-expanded-folder-ids nil))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "plans" root))
+          (make-directory (expand-file-name "notes" root))
+          (with-temp-file (expand-file-name "plans/work.org" root)
+            (insert "* TODO Ship\nSCHEDULED: <2026-10-24 Sat>\n"))
+          (with-temp-file (expand-file-name "notes/idea.org" root)
+            (insert "* Idea\n"))
+          (cl-letf (((symbol-function 'jetpacs-org-mode-agenda-scope)
+                     (lambda ()
+                       (list (expand-file-name "plans/work.org" root)
+                             (expand-file-name "notes/idea.org" root))))
+                    ((symbol-function 'customize-save-variable) #'ignore))
+            (should (bloom-library-refresh))
+            (let ((folders (plist-get bloom-library--snapshot :folders)))
+              (should (plist-get (cl-find "plans" folders
+                                          :key (lambda (f) (plist-get f :label))
+                                          :test #'equal)
+                                 :expanded))
+              (should-not (plist-get (cl-find "notes" folders
+                                              :key (lambda (f) (plist-get f :label))
+                                              :test #'equal)
+                                     :expanded)))
+            (should bloom-library-tree-defaults-applied)
+            ;; Later refreshes leave the user's choice alone.
+            (setq bloom-library-expanded-folder-ids nil)
+            (bloom-library-refresh)
+            (should-not bloom-library-expanded-folder-ids)))
+      (delete-directory root t)
+      (bloom-library-reset))))
