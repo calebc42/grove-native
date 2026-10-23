@@ -30,6 +30,7 @@
 (require 'bloom-library)
 (require 'bloom-org)
 (require 'bloom-read)
+(require 'bloom-edit)
 
 (defconst bloom-document--screen-id "document"
   "Stable chrome screen id for Bloom's document presenter.")
@@ -371,13 +372,31 @@ parsed subtree in the snapshot."
                'read)
            info))))
 
+(defun bloom-document--parity-edit-info ()
+  "Return the current document's info when edit mode can draw parity, else nil.
+Parity needs the design runtime, Bloom's parity faces, edit mode, and a
+Companion that hosts synchronized editors."
+  (when (and (jetpacs-extension-advertised-p "jetpacs.design" :app)
+             (bloom-design-parity-available-p)
+             (bloom-edit-sync-available-p))
+    (let ((info (condition-case nil (bloom-document--current-info) (error nil))))
+      (and info
+           (eq (bloom-document--mode (plist-get info :notebook-id)
+                                     (plist-get info :heading-id))
+               'edit)
+           info))))
+
 (defun bloom-document-presented-screen (back)
   "Build the profile-selected document reader or editor with BACK.
-Read mode under the design runtime is the Android app's own reader."
-  (if-let* ((info (bloom-document--parity-read-info)))
-      (bloom-read-screen info back)
+Under the design runtime both modes are the Android app's own screens."
+  (cond
+   ((bloom-document--parity-read-info)
+    (bloom-read-screen (bloom-document--parity-read-info) back))
+   ((bloom-document--parity-edit-info)
+    (bloom-edit-screen (bloom-document--parity-edit-info) back))
+   (t
     (bloom-design-present-if-advertised
-     (bloom-document-screen back) 'document)))
+     (bloom-document-screen back) 'document))))
 
 (defun bloom-document--on-read-fold (args params)
   "Fold or unfold ARGS' heading in the current read view for PARAMS."
@@ -433,10 +452,13 @@ Bloom through the same presenter the reader used."
                         (list :notebook-id notebook-id
                               :heading-id heading-id))))
         'stale
-      (let ((key (bloom-document--key notebook-id heading-id)))
-        (puthash key
-                 (if (eq (bloom-document--mode notebook-id heading-id) 'read)
-                     'edit 'read)
+      (let ((editing (eq (bloom-document--mode notebook-id heading-id) 'edit)))
+        ;; Leaving the editor saves first, so Read shows what was typed.
+        (when editing
+          (bloom-edit-save)
+          (setq heading-id (plist-get bloom-document--current :heading-id)))
+        (puthash (bloom-document--key notebook-id heading-id)
+                 (if editing 'read 'edit)
                  bloom-document--modes)
         (jetpacs-app-defer-refresh params)
         'accepted))))
@@ -493,6 +515,35 @@ entire buffer, point, restriction, and modified flag exactly."
                               (point-max)))
               (set-buffer-modified-p original-modified))))))))
 
+(defun bloom-document-write-subtree (notebook-id heading-id revision value)
+  "Replace NOTEBOOK-ID's HEADING-ID subtree with VALUE when REVISION holds.
+REVISION is the SHA-256 of the subtree text the caller started from.
+Return the heading's id after the write, which a retitle changes, or the
+symbol `stale' when the file's subtree no longer matches REVISION.  The
+current document and its mode follow the heading to its new id, and
+Bloom's projections refresh.  Signals as the underlying write does."
+  (let* ((ref (or (bloom-library-resolve-heading notebook-id heading-id)
+                  (signal 'ebp-org-unresolved nil)))
+         (live (bloom-document--live-subtree ref))
+         (submitted (if (string-suffix-p "\n" value) value (concat value "\n"))))
+    (if (not (equal (secure-hash 'sha256 (plist-get live :content)) revision))
+        'stale
+      (let* ((new-ref (bloom-document--replace-subtree
+                       (plist-get live :buffer) (plist-get live :beg)
+                       (plist-get live :end) submitted))
+             (new-heading-id (bloom-library--heading-id new-ref))
+             (mode (bloom-document--mode notebook-id heading-id)))
+        (puthash (bloom-library--heading-key notebook-id new-heading-id)
+                 new-ref bloom-library--heading-refs)
+        (when (equal bloom-document--current
+                     (list :notebook-id notebook-id :heading-id heading-id))
+          (setq bloom-document--current
+                (list :notebook-id notebook-id :heading-id new-heading-id)))
+        (puthash (bloom-document--key notebook-id new-heading-id)
+                 mode bloom-document--modes)
+        (bloom-document--after-mutation notebook-id new-heading-id)
+        new-heading-id))))
+
 (defun bloom-document--on-save (args params)
   "Revision-check ARGS and replace one subtree for event PARAMS."
   (let ((notebook-id (plist-get args :notebook-id))
@@ -510,31 +561,12 @@ entire buffer, point, restriction, and modified flag exactly."
      ((not (string-match-p "\\`\\*+ " value)) 'rejected)
      (t
       (condition-case err
-          (let* ((ref (or (bloom-library-resolve-heading
-                           notebook-id heading-id)
-                          (signal 'ebp-org-unresolved nil)))
-                 (live (bloom-document--live-subtree ref))
-                 (buffer (plist-get live :buffer))
-                 (beg (plist-get live :beg))
-                 (end (plist-get live :end))
-                 (original (plist-get live :content))
-                 (submitted (if (string-suffix-p "\n" value)
-                                value (concat value "\n")))
-                 new-heading-id)
-            (if (not (equal (secure-hash 'sha256 original) revision))
+          (let ((result (bloom-document-write-subtree
+                         notebook-id heading-id revision value)))
+            (if (eq result 'stale)
                 'stale
-              (let ((new-ref (bloom-document--replace-subtree
-                              buffer beg end submitted)))
-                (setq new-heading-id (bloom-library--heading-id new-ref))
-                (puthash (bloom-library--heading-key
-                          notebook-id new-heading-id)
-                         new-ref bloom-library--heading-refs))
-              (setq bloom-document--current
-                    (list :notebook-id notebook-id
-                          :heading-id new-heading-id))
-              (puthash (bloom-document--key notebook-id new-heading-id)
+              (puthash (bloom-document--key notebook-id result)
                        'read bloom-document--modes)
-              (bloom-document--after-mutation notebook-id new-heading-id)
               (jetpacs-shell-notify "Saved" surface)
               (jetpacs-app-defer-refresh params)
               'accepted))
@@ -1300,7 +1332,7 @@ snapshot."
     "bloom.document.todo" "bloom.document.planning"
     "bloom.planning.pick" "bloom.planning.suggest" "bloom.planning.focus"
     "bloom.planning.month" "bloom.planning.clear" "bloom.planning.save"
-    "bloom.read.fold" "bloom.read.drawer" "bloom.read.link")
+    "bloom.read.fold" "bloom.read.drawer" "bloom.read.link" "bloom.edit.save")
   "Action names owned by Bloom's document module.")
 
 (defun bloom-document-register ()
@@ -1316,6 +1348,8 @@ snapshot."
                       (jetpacs-defaction "bloom.read.drawer" #'bloom-document--on-read-drawer
                                          :args '((:name key :type "text" :required t))
                                          :doc "Open or close one drawer or block of the read view")
+                      (jetpacs-defaction "bloom.edit.save" #'bloom-edit-on-save
+                                         :doc "Save the note open in edit mode now")
                       (jetpacs-defaction "bloom.read.link" #'bloom-document--on-read-link
                                          :args '((:name target :type "text" :required t))
                                          :doc "Follow an Org link from the open note")

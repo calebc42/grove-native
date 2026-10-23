@@ -434,32 +434,44 @@ Headings under a folded ancestor are omitted, as the app never composes them."
 
 ;;;; Screen
 
-(defun bloom-read--toggle (info)
-  "Return the app's Read/Edit switch for document INFO, Read selected."
+(defun bloom-read--toggle-segment (icon label on)
+  "Return one segment of the mode switch: ICON named LABEL, lit when ON."
+  (jetpacs-design-styled
+   (list (if on "bloom.toggle-on" "bloom.toggle-off"))
+   (list (jetpacs-box (jetpacs-icon icon :size 15
+                                    :color (bloom-design-color
+                                            (if on "on-primary" "muted"))
+                                    :content-description label)
+                      :alignment "center"))))
+
+(defun bloom-read--toggle (info &optional editing)
+  "Return the app's Read/Edit switch for document INFO.
+Read is lit, and a tap switches to Edit; with EDITING, Edit is lit and a
+tap switches back to Read."
   (jetpacs-with-attrs
    (jetpacs-design-styled
     '("bloom.toggle")
     (list
      (jetpacs-box
       (jetpacs-row
-       (jetpacs-design-styled
-        '("bloom.toggle-on")
-        (list (jetpacs-box (jetpacs-icon "visibility" :size 15
-                                         :color (bloom-design-color "on-primary")
-                                         :content-description "Read")
-                           :alignment "center")))
-       (jetpacs-design-styled
-        '("bloom.toggle-off")
-        (list (jetpacs-box (jetpacs-icon "edit" :size 15
-                                         :color (bloom-design-color "muted")
-                                         :content-description "Edit")
-                           :alignment "center")))
+       (bloom-read--toggle-segment "visibility" "Read" (not editing))
+       (bloom-read--toggle-segment "edit" "Edit" editing)
        :align "center")
       :on-tap (jetpacs-action "bloom.document.mode"
                               :args (list :notebook-id (plist-get info :notebook-id)
                                           :heading-id (plist-get info :heading-id)
-                                          :mode "edit")))))
+                                          :mode (if editing "read" "edit"))))))
    :pad '(:end 8)))
+
+(defun bloom-read--fab (action label)
+  "Return the app's 54 dp menu button dispatching ACTION, named LABEL."
+  (jetpacs-design-styled
+   '("bloom.read-fab")
+   (list (jetpacs-with-semantics
+          (jetpacs-box (bloom-read--text "read-fab" "☰")
+                       :alignment "center"
+                       :on-tap action)
+          :name label))))
 
 (defun bloom-read--top-bar (info back)
   "Return document INFO's read bar: BACK, the mode switch, and breadcrumb."
@@ -501,15 +513,12 @@ Headings under a folded ancestor are omitted, as the app never composes them."
                         (list (jetpacs-spacer :height 40)
                               (jetpacs-spacer :height 48))))
          :pad '(:start 24 :end 24))
-        :fab (jetpacs-design-styled
-              '("bloom.read-fab")
-              (list (jetpacs-box (bloom-read--text "read-fab" "☰")
-                                 :alignment "center"
-                                 :on-tap (jetpacs-action
-                                          "bloom.document.mode"
-                                          :args (list :notebook-id (plist-get info :notebook-id)
-                                                      :heading-id (plist-get info :heading-id)
-                                                      :mode "edit"))))))
+        :fab (bloom-read--fab
+              (jetpacs-action "bloom.document.mode"
+                              :args (list :notebook-id (plist-get info :notebook-id)
+                                          :heading-id (plist-get info :heading-id)
+                                          :mode "edit"))
+              "Open metadata"))
        :pane-title (or (plist-get info :headline) "Note"))))))
 
 ;;;; Actions

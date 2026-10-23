@@ -705,11 +705,105 @@ pixels exactly as the app's does."
             ("corner_radius" . ,(jetpacs-design-dimension 18))
             ("background_color" . ,(bloom-design--token "color.primary"))))))))
 
+;;;; Edit mode
+
+(defconst bloom-design-star-colors
+  '("success" "info" "warning" "error" "violet" "primary")
+  "Heading-star colors by outline depth, cycled from level 1.
+The app's `starColor': green, blue, amber, red, violet, then accent.")
+
+(defconst bloom-design-syntax-roles
+  '(("heading" "bloom.syn.heading" (("font_weight" . 600)))
+    ("function" "bloom.syn.headline"
+     (("content_color" . "on-background") ("font_weight" . 600)))
+    ("todo" "bloom.syn.todo" (("content_color" . "syn-todo") ("font_weight" . 700)))
+    ("done" "bloom.syn.done" (("content_color" . "syn-done") ("font_weight" . 700)))
+    ("tag" "bloom.syn.tag" (("content_color" . "syn-tag") ("font_weight" . 400)))
+    ("comment" "bloom.syn.planning"
+     (("content_color" . "syn-keyword") ("font_weight" . 400) ("italic" . nil)))
+    ("keyword" "bloom.syn.planning-keyword"
+     (("content_color" . "syn-keyword") ("font_weight" . 600)))
+    ("number" "bloom.syn.timestamp" (("content_color" . "syn-timestamp")))
+    ("preprocessor" "bloom.syn.property" (("content_color" . "syn-property")))
+    ("string" "bloom.syn.code"
+     (("content_color" . "primary") ("background_color" . "surface-raised")))
+    ("constant" "bloom.syn.bold" (("content_color" . "syn-tag") ("font_weight" . 600)))
+    ("type" "bloom.syn.italic" (("content_color" . "success") ("italic" . t)))
+    ("variable" "bloom.syn.underline"
+     (("content_color" . "on-background") ("underline" . t)))
+    ("operator" "bloom.syn.strike"
+     (("content_color" . "on-background") ("strike_through" . t)))
+    ("link" "bloom.syn.link" (("content_color" . "syn-link") ("underline" . t))))
+  "Each EBP syntax role Bloom's editor sends, its style, and that style.
+The app's raw-Org highlighter has more distinct styles than EBP has roles
+that name them, so `bloom-edit' assigns the roles and these styles give
+each the app's color, weight, slant, and line.  Colors name palette
+tokens; nil turns a role default off.")
+
+(defun bloom-design--syntax-value (property value)
+  "Return the design value for syntax style PROPERTY set to VALUE."
+  (pcase property
+    ("font_weight" (jetpacs-design-font-weight value))
+    ((or "italic" "underline" "strike_through")
+     (jetpacs-design-boolean (if value t :json-false)))
+    (_ (bloom-design--token (concat "color." value)))))
+
+(defun bloom-design--edit-styles ()
+  "Return the raw-Org editor's text, surface, and syntax styles."
+  (append
+   `(("bloom.edit-text"
+      . ,(jetpacs-design-style
+          `(("font_family" . ,(jetpacs-design-font-family "plex-mono"))
+            ("font_size" . ,(jetpacs-design-dimension 13.5))
+            ("font_weight" . ,(jetpacs-design-font-weight 400))
+            ("line_height" . ,(jetpacs-design-dimension 24.975))
+            ("letter_spacing" . ,(jetpacs-design-dimension 0))
+            ("content_color" . ,(bloom-design--token "color.on-background")))))
+     ;; The app's field: 18 dp sides and 80 dp of room below so the last
+     ;; line clears the menu button.  Its 18 dp top inset slides the whole
+     ;; field down rather than padding it, so the visible text runs 18 dp
+     ;; further down than the 80 dp alone allows: 62 dp below here.
+     ("bloom.edit-surface"
+      . ,(jetpacs-design-style
+          `(("padding_start" . ,(jetpacs-design-dimension 18))
+            ("padding_end" . ,(jetpacs-design-dimension 18))
+            ("padding_top" . ,(jetpacs-design-dimension 18))
+            ("padding_bottom" . ,(jetpacs-design-dimension 62))))))
+   (mapcar
+    (pcase-lambda (`(,_role ,style ,properties))
+      (cons style
+            (jetpacs-design-style
+             (mapcar (pcase-lambda (`(,property . ,value))
+                       (cons property
+                             (bloom-design--syntax-value property value)))
+                     properties))))
+    bloom-design-syntax-roles)
+   (cl-loop for level from 1 to 8
+            collect
+            (cons (format "bloom.syn.heading-%d" level)
+                  (jetpacs-design-style
+                   `(("content_color"
+                      . ,(bloom-design--token
+                          (concat "color."
+                                  (nth (% (1- level) 6)
+                                       bloom-design-star-colors))))))))))
+
+(defun bloom-design--syntax-bindings ()
+  "Return the `editor.syntax.*' slot bindings for Bloom's editor."
+  (append
+   (mapcar (pcase-lambda (`(,role ,style ,_))
+             (cons (concat "editor.syntax." role) (list style)))
+           bloom-design-syntax-roles)
+   (cl-loop for level from 1 to 8
+            collect (cons (format "editor.syntax.heading-%d" level)
+                          (list (format "bloom.syn.heading-%d" level))))))
+
 (defun bloom-design--parity-styles ()
   "Return the faces that reproduce the Android app's chrome metrics."
   (append
    (bloom-design--text-role-styles)
    (bloom-design--read-styles)
+   (bloom-design--edit-styles)
    (bloom-design--monogram-styles)
    (bloom-design--ink-styles)
    (bloom-design--chip-styles)
@@ -945,7 +1039,8 @@ With CHROME non-nil the profile also re-declares the EBP theme roles."
    :typography bloom-design-typography
    :styles (append (bloom-design--styles) (bloom-design--parity-styles))
    :motions bloom-design-motions
-   :component-styles bloom-design-component-styles
+   :component-styles (append bloom-design-component-styles
+                             (bloom-design--syntax-bindings))
    :theme-roles (and chrome (bloom-design--chrome-roles))))
 
 (defun bloom-design-profile ()

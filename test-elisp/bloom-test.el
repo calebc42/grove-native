@@ -1624,6 +1624,114 @@ checks, run from the foundation's applet tooling."
     (should (string-match-p "Registered on entry: yes" report)))
   (should (assoc "bloom" jetpacs-apps--registry)))
 
+(ert-deftest bloom-edit-inline-tokens-follow-the-apps-claiming-order ()
+  "Links and timestamps claim first; emphasis needs Org's boundaries."
+  (should (equal (bloom-edit-inline-tokens "see *bold* and /it/ now")
+                 '((4 10 bold) (15 19 italic))))
+  (should (equal (bloom-edit-inline-tokens "a [[https://x.org][*x*]] b")
+                 '((2 24 link))))
+  (should (equal (bloom-edit-inline-tokens "on <2026-08-30 Sun> ~c~ =v=")
+                 '((3 19 timestamp) (20 23 code) (24 27 code))))
+  ;; No boundary before, whitespace inside the marker, or a word after.
+  (should-not (bloom-edit-inline-tokens "a*b* * c * *d*e"))
+  (should (equal (bloom-edit-inline-tokens "call 833-806-1627.")
+                 '((5 17 link))))
+  (should-not (bloom-edit-inline-tokens "id 1833-806-16278")))
+
+(ert-deftest bloom-edit-line-styles-port-the-apps-highlighter ()
+  "Headline, planning, drawer, and property lines style as the app's do."
+  (let ((keywords '("TODO" "NEXT" "DONE")) (done '("DONE")))
+    (let ((styles (bloom-edit-line-styles "** TODO Book it  :a:b:" keywords done)))
+      (should (equal (aref styles 0) '(star . 2)))
+      (should (equal (aref styles 1) '(star . 2)))
+      (should-not (aref styles 2))
+      (should (eq (aref styles 3) 'todo))
+      (should (eq (aref styles 8) 'headline))
+      (should (eq (aref styles 15) 'tag))
+      (should (eq (aref styles 21) 'tag)))
+    (let ((styles (bloom-edit-line-styles "* DONE x" keywords done)))
+      (should (eq (aref styles 2) 'done)))
+    (let ((styles (bloom-edit-line-styles
+                   "SCHEDULED: <2026-09-05 Sat>" keywords done)))
+      (should (eq (aref styles 0) 'planning-keyword))
+      (should (eq (aref styles 10) 'planning))
+      (should (eq (aref styles 11) 'timestamp)))
+    (should (cl-every (lambda (key) (eq key 'property))
+                      (bloom-edit-line-styles ":PROPERTIES:" keywords done)))
+    (let ((styles (bloom-edit-line-styles ":CREATED: [2026-08-02 Sun]"
+                                          keywords done)))
+      (should (eq (aref styles 8) 'property-key))
+      (should (eq (aref styles 9) 'property)))))
+
+(ert-deftest bloom-edit-runs-are-sorted-roles-with-heading-levels ()
+  "Runs merge per role, carry star depth, and skip plain text."
+  (let ((runs (bloom-edit-text-runs "* A\nplain *b*\n" '("TODO") nil)))
+    (should (equal runs
+                   '((:start 0 :end 1 :role "heading" :level 1)
+                     (:start 2 :end 3 :role "function")
+                     (:start 10 :end 13 :role "constant"))))
+    (let ((last -1))
+      (dolist (run runs)
+        (should (>= (plist-get run :start) last))
+        (setq last (plist-get run :end))))))
+
+(ert-deftest bloom-edit-profile-binds-every-syntax-slot ()
+  "Each preset styles all fifteen roles and eight heading depths."
+  (let* ((profile (bloom-design-light-profile))
+         (slots (mapcar #'car (plist-get profile :component-styles))))
+    (dolist (slot jetpacs-design-component-style-slots)
+      (when (string-prefix-p "editor.syntax." slot)
+        (should (member slot slots))))
+    (should (assoc "bloom.syn.heading-7" (plist-get profile :styles)))))
+
+(ert-deftest bloom-edit-screen-attaches-once-and-autosaves ()
+  "A rebuild reuses the attached session; a change saves after the delay."
+  (let* ((bloom-edit--buffer nil)
+         (attached nil) (writes nil) (refreshes 0)
+         (info (list :notebook-id "n" :heading-id "h" :headline "Trip"
+                     :content "* Trip\nBody.\n"
+                     :revision (secure-hash 'sha256 "* Trip\nBody.\n"))))
+    (cl-letf (((symbol-function 'jetpacs-client) (lambda () 'client))
+              ((symbol-function 'ebp-sync-attached-buffer)
+               (lambda (&rest _) (car attached)))
+              ((symbol-function 'ebp-sync-attach)
+               (lambda (_client _doc _eid buffer) (push buffer attached)))
+              ((symbol-function 'ebp-sync-detach) #'ignore)
+              ((symbol-function 'jetpacs-chrome-defer-current-view-refresh)
+               (lambda (&rest _) (cl-incf refreshes)))
+              ((symbol-function 'bloom-document-write-subtree)
+               (lambda (_n _h revision value) (push (cons revision value) writes) "h2")))
+      (unwind-protect
+          (let ((first (jetpacs-node->canonical-json
+                        (bloom-edit-screen info (jetpacs-view-switch "outline")))))
+            (should (= (length attached) 1))
+            (should (string-search "editor.syntax" first))
+            (should (string-search "\"chromeless\":true" first))
+            (should (string-search "bloom.edit-surface" first))
+            (should-not (string-search "\"on_save\"" first))
+            (should (equal first (jetpacs-node->canonical-json
+                                  (bloom-edit-screen
+                                   info (jetpacs-view-switch "outline")))))
+            (should (= (length attached) 1))
+            (with-current-buffer bloom-edit--buffer
+              (should (equal (bloom-edit-fontify-runs)
+                             '((:start 0 :end 1 :role "heading" :level 1)
+                               (:start 2 :end 6 :role "function"))))
+              (goto-char (point-max))
+              (insert "More.\n"))
+            (should (= refreshes 1))
+            (should (bloom-edit-save))
+            (should (equal writes
+                           (list (cons (plist-get info :revision)
+                                       "* Trip\nBody.\nMore.\n"))))
+            (should-not (bloom-edit-save))
+            (should (equal (buffer-local-value 'bloom-edit--heading-id
+                                               bloom-edit--buffer)
+                           "h2")))
+        (when (buffer-live-p bloom-edit--buffer)
+          (kill-buffer bloom-edit--buffer))))))
+
+
 (provide 'bloom-test)
 ;;; bloom-test.el ends here
 
