@@ -1823,7 +1823,12 @@ checks, run from the foundation's applet tooling."
       (should (eq (bloom-settings-on-change
                    '(:name "jetpacs-design-active-profile-id" :value "\"nope\"") nil)
                   'rejected))
-      (should (= (length applied) 1)))))
+      ;; A switch injects its state as a JSON boolean.
+      (should (eq (bloom-settings-on-change
+                   '(:name "bloom-agenda-show-file" :value :json-false) nil)
+                  'accepted))
+      (should (equal (car applied) '(bloom-agenda-show-file)))
+      (should (= (length applied) 2)))))
 
 (ert-deftest bloom-settings-screens-are-deterministic-and-profile-valid ()
   "The root and every page render twice alike and pass the app profile."

@@ -38,7 +38,6 @@
 (defvar bloom-reminder-lead-minutes)
 (defvar bloom-reminder-horizon-hours)
 (defvar bloom-org-agenda-days)
-(defvar bloom-navigation--line-rounding)
 
 (defconst bloom-settings-section "Bloom"
   "The title of Bloom's section in the Jetpacs settings registry.")
@@ -133,22 +132,28 @@ DESCRIPTION CHOICES), where CHOICES are (VALUE . LABEL)."
    :height 56 :pad '(:start 6 :end 16)))
 
 (defun bloom-settings--group (rows)
-  "Return the app's rounded card holding ROWS, hairlines between them."
-  (jetpacs-design-styled
-   '("bloom.settings.group")
-   (list
-    (apply #'jetpacs-column
-           (append
-            (cl-loop for row in rows
-                     for index from 0
-                     when (> index 0)
-                     collect (jetpacs-with-attrs
-                              (jetpacs-design-styled
-                               '("bloom.agenda.hairline")
-                               (list (jetpacs-spacer :height 1)))
-                              :pad '(:horizontal 14))
-                     collect row)
-            (list :fill t))))))
+  "Return the app's rounded card holding ROWS, hairlines between them.
+Each row is a function of its top and bottom trim in dp.  The receiver
+insets a bordered box's content by the 1 dp border, which the app's
+border does not take, so the first row starts 1 dp higher and the last
+ends 1 dp lower than their padding alone."
+  (let ((count (length rows)))
+    (jetpacs-design-styled
+     '("bloom.settings.group")
+     (list
+      (apply #'jetpacs-column
+             (append
+              (cl-loop for row in rows
+                       for index from 0
+                       when (> index 0)
+                       collect (jetpacs-with-attrs
+                                (jetpacs-design-styled
+                                 '("bloom.agenda.hairline")
+                                 (list (jetpacs-spacer :height 1)))
+                                :pad '(:horizontal 14))
+                       collect (funcall row (if (= index 0) 1 0)
+                                        (if (= index (1- count)) 1 0)))
+              (list :fill t)))))))
 
 (defun bloom-settings--label-column (label description)
   "Return a row's LABEL over its DESCRIPTION."
@@ -160,18 +165,22 @@ DESCRIPTION CHOICES), where CHOICES are (VALUE . LABEL)."
                                                 :pad '(:top 2)))))))
 
 (defun bloom-settings--link-row (label description action &optional trailing)
-  "Return a tappable row for LABEL and DESCRIPTION dispatching ACTION.
-TRAILING replaces the › chevron."
-  (jetpacs-box
-   (jetpacs-with-attrs
-    (jetpacs-row
-     (jetpacs-with-attrs (bloom-settings--label-column label description) :weight 1)
-     (jetpacs-spacer :width 12)
-     (or trailing (bloom-settings--text "settings-chevron" nil "›"))
-     :align "center" :fill t)
-    ;; Two line boxes round up to whole pixels in the app: 0.4 dp more.
-    :pad (list :horizontal 14 :top 14 :bottom (+ 14 bloom-navigation--line-rounding)))
-   :on-tap action))
+  "Return a group row for LABEL and DESCRIPTION dispatching ACTION.
+TRAILING replaces the › chevron.  The row is a function of its edge trim;
+see `bloom-settings--group'."
+  (lambda (top bottom)
+    (let ((row (jetpacs-with-attrs
+                (jetpacs-row
+                 (jetpacs-with-attrs (bloom-settings--label-column label description)
+                                     :weight 1)
+                 (jetpacs-spacer :width 12)
+                 (or trailing (bloom-settings--text "settings-chevron" nil "›"))
+                 :align "center" :fill t)
+                ;; 0.2 dp is what the app's whole-pixel line boxes add to a
+                ;; two-line row here; measured on the device.
+                :pad (list :horizontal 14 :top (- 14 top)
+                           :bottom (- 14.2 bottom)))))
+      (if action (jetpacs-box row :on-tap action) row))))
 
 (defun bloom-settings--change-action (symbol value)
   "Return the action setting SYMBOL to VALUE."
@@ -179,43 +188,89 @@ TRAILING replaces the › chevron."
                   :args (list :name (symbol-name symbol)
                               :value (format "%S" value))))
 
+(defun bloom-settings--switch (symbol label)
+  "Return the app's Material switch for boolean SYMBOL, named LABEL.
+Drawn from boxes so its geometry is Material's exactly.  The thumb sits
+inside the track's 2 dp outline while off, so its 8 dp offset is 6 dp of
+padding there; on, the track has no outline."
+  (let ((on (and (symbol-value symbol) t)))
+    (jetpacs-with-semantics
+     (jetpacs-design-styled
+      (list "bloom.settings.track"
+            (if on "bloom.settings.track-on" "bloom.settings.track-off"))
+      (list
+       (jetpacs-box
+        (jetpacs-with-attrs
+         (jetpacs-design-styled
+          (list (if on "bloom.settings.thumb-on" "bloom.settings.thumb-off"))
+          (list (jetpacs-spacer :width 1)))
+         :pad (list :start (if on 24 6)))
+        :alignment "center_start"
+        :on-tap (bloom-settings--change-action symbol (not on)))))
+     :name label
+     :state-description (if on "On" "Off"))))
+
 (defun bloom-settings--toggle-row (symbol label description)
-  "Return a switch row for boolean SYMBOL with LABEL and DESCRIPTION."
+  "Return a switch row for boolean SYMBOL with LABEL and DESCRIPTION.
+The row is a function of its edge trim; see `bloom-settings--group'."
+  (lambda (top bottom)
   (jetpacs-with-attrs
    (jetpacs-row
     (jetpacs-with-attrs (bloom-settings--label-column label description) :weight 1)
     (jetpacs-spacer :width 12)
-    (jetpacs-switch (jetpacs-wire-id "bloom-setting" (symbol-name symbol))
-                    :checked (if (symbol-value symbol) t :json-false)
-                    :on-change (bloom-settings--change-action
-                                symbol (not (symbol-value symbol))))
+    ;; The switch injects its new state as `value' (SPEC 14.3).
+    (bloom-settings--switch symbol label)
     :align "center" :fill t)
-   :pad (list :horizontal 14 :top 12 :bottom (+ 12 bloom-navigation--line-rounding))))
+   :pad (list :horizontal 14 :top (- 12 top) :bottom (- 12 bottom)))))
 
-(defun bloom-settings--choice-row (symbol label description choices)
-  "Return a row picking SYMBOL's value from CHOICES, with LABEL and DESCRIPTION."
+(defun bloom-settings--segments (symbol choices)
+  "Return the app's segmented control picking SYMBOL's value from CHOICES."
   (let ((current (symbol-value symbol)))
-    (jetpacs-with-attrs
-     (jetpacs-column
-      (bloom-settings--label-column label description)
-      (jetpacs-with-attrs
-       (apply #'jetpacs-flow-row
-              (append
-               (mapcar (pcase-lambda (`(,value . ,name))
-                         (let ((on (equal value current)))
+    (jetpacs-design-styled
+     '("bloom.settings.segments")
+     (list
+      (apply #'jetpacs-row
+             (append
+              (mapcar (pcase-lambda (`(,value . ,name))
+                        (let ((on (equal value current)))
+                          (jetpacs-with-attrs
                            (jetpacs-design-styled
-                            (list "bloom.agenda.chip"
-                                  (if on "bloom.agenda.chip-on" "bloom.agenda.chip-off"))
+                            (list "bloom.settings.segment"
+                                  (if on "bloom.settings.segment-on"
+                                    "bloom.settings.segment-off"))
                             (list (jetpacs-box
-                                   (bloom-settings--text "agenda-lever-chip"
+                                   (bloom-settings--text "settings-segment"
                                                          (if on "on-primary" "muted")
                                                          name)
-                                   :on-tap (bloom-settings--change-action symbol value))))))
-                       choices)
-               (list :spacing 6 :run-spacing 6)))
-       :pad '(:top 10))
-      :fill t)
-     :pad '(:horizontal 14 :vertical 14))))
+                                   :alignment "center"
+                                   :on-tap (bloom-settings--change-action symbol value))))
+                           :weight 1)))
+                      choices)
+              (list :fill t)))))))
+
+(defun bloom-settings--choice-row (symbol label description choices)
+  "Return a row picking SYMBOL's value from CHOICES, with LABEL and DESCRIPTION.
+Two choices sit beside the label in a 160 dp segmented control, as the
+app's do; more span the row below it.  The row is a function of its edge
+trim; see `bloom-settings--group'."
+  (lambda (top bottom)
+    (let ((pad (list :horizontal 14 :top (- 14 top) :bottom (- 14 bottom))))
+      (if (<= (length choices) 2)
+          (jetpacs-with-attrs
+           (jetpacs-row
+            (jetpacs-with-attrs (bloom-settings--label-column label description)
+                                :weight 1)
+            (jetpacs-spacer :width 12)
+            (jetpacs-with-attrs (bloom-settings--segments symbol choices) :width 160)
+            :align "center" :fill t)
+           :pad pad)
+        (jetpacs-with-attrs
+         (jetpacs-column
+          (bloom-settings--label-column label description)
+          (jetpacs-with-attrs (bloom-settings--segments symbol choices)
+                              :pad '(:top 10))
+          :fill t)
+         :pad pad)))))
 
 (defun bloom-settings--row (row)
   "Return the node for one page ROW."
@@ -238,9 +293,7 @@ TRAILING replaces the › chevron."
     (bloom-design-screen-scope
      (append (bloom-design-settings-styles)
              (seq-filter (lambda (style)
-                           (member (car style)
-                                   '("bloom.agenda.hairline" "bloom.agenda.chip"
-                                     "bloom.agenda.chip-on" "bloom.agenda.chip-off")))
+                           (equal (car style) "bloom.agenda.hairline"))
                          (bloom-design-agenda-styles)))
      (list
       (jetpacs-with-semantics
@@ -248,9 +301,14 @@ TRAILING replaces the › chevron."
         (jetpacs-scaffold
          :top-bar (bloom-settings--top-bar title back)
          :body
-         (jetpacs-with-attrs
-          (apply #'jetpacs-lazy-column (append body (list (jetpacs-spacer :height 24))))
-          :pad '(:horizontal 16 :top 12)))
+         (jetpacs-design-scope
+          nil nil
+          (list
+           (jetpacs-with-attrs
+            (apply #'jetpacs-lazy-column
+                   (append body (list (jetpacs-spacer :height 24))))
+            :pad '(:horizontal 16 :top 12)))
+))
         (list :fab nil))
        :pane-title title))))))
 
@@ -320,8 +378,15 @@ TRAILING replaces the › chevron."
 (defun bloom-settings-on-change (args params)
   "Set ARGS' option to its value when it is one of Bloom's; refresh PARAMS."
   (let* ((symbol (intern-soft (or (plist-get args :name) "")))
-         (value (condition-case nil (car (read-from-string (plist-get args :value)))
-                  (error 'bloom-settings--invalid))))
+         (raw (plist-get args :value))
+         (value (cond
+                 ;; A switch injects its new state as a JSON boolean.
+                 ((eq raw t) t)
+                 ((eq raw :json-false) nil)
+                 ((stringp raw)
+                  (condition-case nil (car (read-from-string raw))
+                    (error 'bloom-settings--invalid)))
+                 (t 'bloom-settings--invalid))))
     (cond
      ((eq value 'bloom-settings--invalid) 'rejected)
      ((eq symbol 'jetpacs-design-active-profile-id)
@@ -351,14 +416,20 @@ TRAILING replaces the › chevron."
    :subtitle "Notebooks, notes, agenda, search, and reminders"
    :on-tap (jetpacs-action "bloom.settings.hub"))
   (with-jetpacs-owner bloom-owner
+    ;; Bloom's settings also live on the Jetpacs settings hub, another
+    ;; owner's surface, so these verbs are dispatched from any surface.
+    ;; Each still accepts only Bloom's own pages and options.
     (jetpacs-defaction "bloom.settings.hub" #'bloom-settings-on-open
+                       :any-surface t
                        :doc "Open Bloom's settings from the Settings hub")
     (jetpacs-defaction "bloom.settings.page" #'bloom-settings-on-page
+                       :any-surface t
                        :args '((:name page :type "enum" :required t))
                        :doc "Open one page of Bloom's settings")
     (jetpacs-defaction "bloom.settings.change" #'bloom-settings-on-change
+                       :any-surface t
                        :args '((:name name :type "text" :required t)
-                               (:name value :type "text" :required t))
+                               (:name value))
                        :doc "Change one of Bloom's settings")))
 
 (defun bloom-settings-unregister ()

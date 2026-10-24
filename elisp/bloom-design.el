@@ -595,7 +595,8 @@ The order is the app's `MONOGRAM_PALETTE_KEYS', which its name hash indexes.")
     ("settings-description" "plex-sans" 12 400 "muted")
     ("settings-chevron" "plex-mono" 14 400 "muted")
     ("settings-section" "plex-sans" 12 600 "primary" 1)
-    ("settings-id" "plex-mono" 11.5 400 "faint"))
+    ("settings-id" "plex-mono" 11.5 400 "faint")
+    ("settings-segment" "plex-sans" 11.5 600 nil))
   "The Android app's literal text roles, one face per distinct `Text' call.
 Each entry is name, family, size, weight, color, tracking, line height in
 em, and optionally `trimmed', and becomes style `bloom.t.NAME'.  A
@@ -897,11 +898,41 @@ styles name, so every preset still colors them."
                collect (cons (string-remove-prefix ":" (symbol-name key)) value)))))
 
 (defun bloom-design-settings-styles ()
-  "Return Settings' boxes: the rounded group card."
+  "Return Settings' boxes: group card, segmented control, Material switch."
   `(("bloom.settings.group"
      . ,(bloom-design--box-style '(("corner_radius" dp 15) ("fill_width" bool t)
                                    ("background_color" color "surface")
-                                   ("border_width" dp 1) ("border_color" color "line"))))))
+                                   ("border_width" dp 1) ("border_color" color "line"))))
+    ("bloom.settings.segments"
+     . ,(bloom-design--box-style '(("corner_radius" dp 10) ("padding" dp 3)
+                                   ("background_color" color "surface-raised"))))
+    ("bloom.settings.segment"
+     . ,(bloom-design--box-style '(("corner_radius" dp 8) ("fill_width" bool t)
+                                   ("padding_horizontal" dp 14)
+                                   ("padding_vertical" dp 6))))
+    ("bloom.settings.segment-on"
+     . ,(bloom-design--box-style '(("background_color" color "primary"))))
+    ("bloom.settings.segment-off"
+     . ,(bloom-design--box-style '(("background_color" color "surface-raised"))))
+    ;; The app's settings switch is Material 3's, drawn from boxes: a
+    ;; 52x32 track with a 2 dp outline while off, a 16 dp thumb 8 dp in
+    ;; while off and a 24 dp thumb 4 dp from the end while on.
+    ("bloom.settings.track"
+     . ,(bloom-design--box-style '(("width" dp 52) ("height" dp 32)
+                                   ("corner_radius" dp 16))))
+    ("bloom.settings.track-off"
+     . ,(bloom-design--box-style '(("background_color" color "surface-sunken")
+                                   ("border_width" dp 2) ("border_color" color "outline"))))
+    ("bloom.settings.track-on"
+     . ,(bloom-design--box-style '(("background_color" color "primary"))))
+    ("bloom.settings.thumb-off"
+     . ,(bloom-design--box-style '(("width" dp 16) ("height" dp 16)
+                                   ("corner_radius" dp 8)
+                                   ("background_color" color "surface"))))
+    ("bloom.settings.thumb-on"
+     . ,(bloom-design--box-style '(("width" dp 24) ("height" dp 24)
+                                   ("corner_radius" dp 12)
+                                   ("background_color" color "on-primary"))))))
 
 (defun bloom-design-search-styles ()
   "Return Search's boxes: field, toggles, cards, groups, pills and bars.

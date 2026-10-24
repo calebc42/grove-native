@@ -25,6 +25,10 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 - **Search:** the field row, the result count, the Advanced toggle, the Quick
   Start cards, saved searches, results grouped by notebook with the matched
   words highlighted, and the Filters bar.
+- **Settings layout:** the root page's rounded groups and rows, section
+  labels, the segmented controls and Material switches on its pages. The
+  pages hold Bloom's own options, and Bloom appears beside Jetpacs, Emacs,
+  Theme and Glasspane in the Jetpacs Settings hub.
 
 ## Partly matched
 
@@ -51,6 +55,10 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 - **org-ql text queries:** org-ql's text query syntax, such as `todo:TODO`,
   fails on Emacs 31 with an assertion inside its parser. Bloom passes only
   Lisp-form queries to org-ql.
+- **Settings contents:** Bloom's pages are Look and Feel, Notebooks, Notes,
+  Agenda, Search and Reminders, over Bloom's own options. The app's Android
+  pages, such as Sync, Widget, Backup, Sharing, Roam, Tips and Bug report,
+  have no Bloom counterpart.
 - **Agenda state chips:** the options panel lists Org's own TODO keywords
   for the vault, not the Android app's keyword settings, so its chips can
   differ.
@@ -64,11 +72,6 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 These work in Bloom Native today, but in Bloom's earlier Jetpacs-styled
 look, not the app's.
 
-- **Settings:** the app has a root page and fifteen sections. They are
-  Agenda, Appearance, Backup, Capture templates, Notebooks, Notes, Reminders,
-  Roam, Sharing, Sync, Tips, What's new, Widget, Developer and Bug report.
-  Bloom has one settings screen. Whenever a setting is added or changed, the
-  settings import and export must change with it.
 - **Planning dates:** the shared screen that edits SCHEDULED and DEADLINE
   together. Bloom has its own planning calendar.
 - **Capture:** the app has a template picker, a capture editor and a template
