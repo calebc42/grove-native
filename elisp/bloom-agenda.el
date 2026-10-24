@@ -30,6 +30,8 @@
 (require 'bloom-library)
 (require 'bloom-org)
 
+(defvar bloom-navigation--line-rounding)
+
 (declare-function bloom-document-open-action "bloom-document" (notebook-id heading-id))
 (declare-function bloom-document--after-mutation "bloom-document" (notebook-id heading-id))
 (declare-function jetpacs-app-defer-refresh "jetpacs-apps" (&optional params))
@@ -465,7 +467,10 @@ timestamp, shown under EVENT-DAY's section when that is non-nil."
                                          (plist-get note :priority))
                      :alignment "center"))))
         :align "top" :fill t)))
-     :pad '(:horizontal 12 :vertical 10)
+     ;; A row with a meta strip has two line boxes, which the app rounds up
+     ;; to whole pixels: 0.4 dp more.
+     :pad (list :horizontal 12 :top 10
+                :bottom (if meta (+ 10 bloom-navigation--line-rounding) 10))
      :alpha (if done 0.55 1))))
 
 (defun bloom-agenda--swipes (note)
@@ -495,6 +500,15 @@ the end side marks it done, or offers only Reveal on a plain event."
   "Return NOTE's tappable row with META, keyed KEY.
 PLAIN rows, inside the overdue card, carry no swipes."
   (let ((swipes (unless plain (bloom-agenda--swipes note))))
+    (if plain
+        ;; Inside the overdue card a row is transparent and has no swipes,
+        ;; as in the app, so it is a plain tap target, not a card.
+        (jetpacs-with-attrs
+         (jetpacs-box (bloom-agenda--row-content note meta)
+                      :on-tap (bloom-document-open-action
+                               (plist-get note :notebook-id)
+                               (plist-get note :heading-id)))
+         :key key)
     (jetpacs-with-attrs
      (apply #'jetpacs-card
             (bloom-agenda--row-content note meta)
@@ -505,7 +519,7 @@ PLAIN rows, inside the overdue card, carry no swipes."
                             (plist-get note :heading-id)))
              (and (car swipes) (list :swipe-start (car swipes)))
              (and (cdr swipes) (list :swipe-end (cdr swipes)))))
-     :key key)))
+     :key key))))
 
 ;;;; Sections
 
@@ -770,14 +784,15 @@ NOTES default to `bloom-agenda-notes' and TODAY to the current date."
                 (list :spacing 6 :run-spacing 6)))
         (jetpacs-with-attrs
          (bloom-agenda--lever-toggle "Tags on rows" bloom-agenda-show-tags "tags")
-         :pad '(:top 14))
+         ;; Each label's line box rounds up to whole pixels in the app.
+         :pad (list :top 14 :bottom bloom-navigation--line-rounding))
         (jetpacs-with-attrs
          (bloom-agenda--lever-toggle "Source file on rows" bloom-agenda-show-file "file")
-         :pad '(:top 11))
+         :pad (list :top 11 :bottom bloom-navigation--line-rounding))
         (jetpacs-with-attrs
          (bloom-agenda--lever-toggle "Timestamp chips on rows"
                                      bloom-agenda-show-timestamps "timestamps")
-         :pad '(:top 11)))))
+         :pad (list :top 11 :bottom bloom-navigation--line-rounding)))))
      :pad '(:start 14 :top 10 :end 14))))
 
 (defun bloom-agenda--overdue-card (state)

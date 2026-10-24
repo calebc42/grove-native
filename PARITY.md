@@ -20,21 +20,11 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 - **Edit mode, keyboard down:** the raw Org field with the app's syntax
   colours, the save mark, autosave five seconds after the last edit, and the
   menu button.
-- **Agenda, Today tab:** the header, the tab switch, the collapsed overdue
-  card and the task rows.
-
-## Built, not yet checked on the device
-
-- **Agenda, Upcoming tab:** day sections such as "Tomorrow" and "Saturday,
-  Oct 31", the repeat markers and the 14-day window.
-- **Agenda, overdue card opened:** the overdue rows inside the card, with the
-  "late" labels and deadline flags.
-- **Agenda, options panel:** the grouping chips, the state filter and the
-  three row toggles.
-- **Agenda actions:** ticking a row done, "Move to today", and the row swipes.
-- **Search:** the field row, the result count, the Advanced toggle and its
-  operators panel, the Quick Start cards, saved searches, results grouped by
-  notebook, and the Filters bar.
+- **Agenda:** the header, the tab switch, the Today and Upcoming tabs, the
+  overdue card open and closed, the options panel, and the task rows.
+- **Search:** the field row, the result count, the Advanced toggle, the Quick
+  Start cards, saved searches, results grouped by notebook with the matched
+  words highlighted, and the Filters bar.
 
 ## Partly matched
 
@@ -61,6 +51,9 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 - **org-ql text queries:** org-ql's text query syntax, such as `todo:TODO`,
   fails on Emacs 31 with an assertion inside its parser. Bloom passes only
   Lisp-form queries to org-ql.
+- **Agenda state chips:** the options panel lists Org's own TODO keywords
+  for the vault, not the Android app's keyword settings, so its chips can
+  differ.
 - **Agenda title spacing:** the app tightens the day title by -0.21 sp.
   Jetpacs design dimensions can't be negative, so Bloom leaves it out.
 
