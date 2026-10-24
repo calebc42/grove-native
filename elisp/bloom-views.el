@@ -73,11 +73,7 @@ built-in searches, written as Org matches."
 
 (defun bloom-views--phone-id (entry)
   "Return a stable opaque id for private phone-authored ENTRY."
-  (let ((print-length nil)
-        (print-level nil)
-        (print-circle t))
-    (concat "bloom-saved-view-"
-            (substring (secure-hash 'sha256 (prin1-to-string entry)) 0 32))))
+  (jetpacs-opaque-id "bloom-saved-view-" entry))
 
 (defun bloom-views--phone-record (entry)
   "Return presentation record for valid phone-authored ENTRY."

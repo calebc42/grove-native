@@ -86,24 +86,20 @@
   "Return a defensive copy of Bloom's search snapshot."
   (copy-tree bloom-library--search-snapshot))
 
-(defun bloom-library--opaque-id (prefix identity)
-  "Return a stable opaque id using PREFIX and private IDENTITY."
-  (concat prefix (substring (secure-hash 'sha256 identity) 0 32)))
-
 (defun bloom-library--notebook-id (path)
   "Return PATH's stable opaque notebook id."
-  (bloom-library--opaque-id "bloom-notebook-" (file-truename path)))
+  (jetpacs-opaque-id "bloom-notebook-" (file-truename path)))
 
 (defun bloom-library--folder-id (path)
   "Return PATH's stable opaque folder id."
-  (bloom-library--opaque-id
+  (jetpacs-opaque-id
    "bloom-folder-" (directory-file-name (file-truename path))))
 
 (defun bloom-library--heading-id (ref)
   "Return a stable opaque heading id for private Org REF."
   (let ((file (or (plist-get ref :file) ""))
         (id (plist-get ref :id)))
-    (bloom-library--opaque-id
+    (jetpacs-opaque-id
      "bloom-heading-"
      (if (and (stringp id) (not (string-empty-p id)))
          (format "%s|id:%s" file id)
@@ -1182,11 +1178,7 @@ projection.  Failure retains the last successful rows behind a safe error."
 
 (defun bloom-library--notebook-filename (name)
   "Validate NAME and return its single-segment Org filename."
-  (unless (and (stringp name)
-               (not (string-blank-p name))
-               (equal name (file-name-nondirectory name))
-               (not (member name '("." "..")))
-               (not (string-match-p "[[:cntrl:]]" name)))
+  (unless (jetpacs-files-segment-p name)
     (user-error "Notebook name must be one printable path segment"))
   (let ((filename (if (string-match-p "\\.org\\'" name)
                       name (concat name ".org"))))

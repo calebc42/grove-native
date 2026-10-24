@@ -56,10 +56,6 @@
 (defconst bloom-reminders--action-ttl-seconds 604800
   "Maximum durable lifetime of an offline reminder action.")
 
-(defun bloom-reminders--opaque-id (prefix identity)
-  "Return a stable wire-safe opaque id using PREFIX and private IDENTITY."
-  (concat prefix (substring (secure-hash 'sha256 identity) 0 32)))
-
 (defun bloom-reminders--offline-policy ()
   "Return the strongest currently granted durable reminder policy."
   (if (jetpacs-granted-p "offline.wake") 'wake 'queue))
@@ -111,13 +107,13 @@ RICH-ACTIONS means the live session granted `reminders.actions'."
               (coordinates
                (bloom-library-identify-heading (plist-get candidate :ref))))
     (let* ((reminder-id
-            (bloom-reminders--opaque-id "bloom-reminder-" identity))
+            (jetpacs-opaque-id "bloom-reminder-" identity))
            (open-surface (and rich-actions bloom-app-surface))
            (body-action
             (bloom-reminders--remote-action
              "bloom.document.open" coordinates 86400 open-surface))
            (complete-dedupe
-            (bloom-reminders--opaque-id "bloom-complete-" identity))
+            (jetpacs-opaque-id "bloom-complete-" identity))
            (actions
             (and rich-actions
                  (vector

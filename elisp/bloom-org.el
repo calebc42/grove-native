@@ -24,6 +24,7 @@
 (require 'calendar)
 (require 'ebp-org)
 (require 'jetpacs-org-reminders)
+(require 'jetpacs-widgets)
 (require 'bloom-core)
 (require 'bloom-library)
 
@@ -165,7 +166,7 @@ the Org agenda read; planning builders only consume its explicit result."
             (format "%s|pos:%s|heading:%s" file
                     (or (plist-get ref :pos) 0)
                     (or (plist-get ref :headline) "")))))
-    (concat "bloom-item-" (substring (secure-hash 'sha256 identity) 0 32))))
+    (jetpacs-opaque-id "bloom-item-" identity)))
 
 (defalias 'bloom-org--item-time #'jetpacs-org-reminders-item-hm
   "Normalize agenda time-grid RAW to HH:MM, or nil (the foundation's).")
