@@ -963,7 +963,7 @@ labels, PROPERTIES pairs, LOGBOOK lines, and body blocks."
                             content org-todo-keywords-1 org-done-keywords
                             (current-time))
                      :beg beg :end end :content content
-                     :revision (secure-hash 'sha256 content)
+                     :revision (secure-hash 'sha256 (current-buffer) beg end)
                      :ref ref))))
         (set-marker marker nil)))))
 

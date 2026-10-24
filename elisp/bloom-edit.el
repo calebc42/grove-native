@@ -35,6 +35,8 @@
 
 (declare-function bloom-document-write-subtree "bloom-document"
                   (notebook-id heading-id revision value))
+(declare-function bloom-document-revision "bloom-document"
+                  (notebook-id heading-id))
 (declare-function jetpacs-client "jetpacs-connect")
 (declare-function jetpacs-granted-p "jetpacs-surfaces")
 (declare-function jetpacs-node-advertised-p "jetpacs-surfaces")
@@ -401,7 +403,8 @@ session read it is left unsaved, as the app leaves it, with a notice."
              nil)
             ((pred stringp)
              (setq bloom-edit--heading-id result
-                   bloom-edit--revision (secure-hash 'sha256 value)
+                   bloom-edit--revision (bloom-document-revision
+                                         bloom-edit--notebook-id result)
                    bloom-edit--dirty nil
                    bloom-edit--saved-at (current-time))
              t)))))))

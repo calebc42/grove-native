@@ -1014,42 +1014,53 @@ Foundation renderer takes its whole appearance from them."
       (should (equal persisted '(("My view" "text" "needle"))))
       (should (equal (seq-take searched 2) '("needle" "text"))))))
 
-(ert-deftest bloom-document-subtree-save-rolls-back-pre-durability-failure ()
-  "A failed prewrite restores the entire live Org buffer exactly."
-  (let* ((file (make-temp-file "bloom-document" nil ".org"
-                               "* TODO Original\nBody.\n* Keep\nSafe.\n"))
-         (buffer (find-file-noselect file t)))
-    (unwind-protect
-        (with-current-buffer buffer
-          (org-mode)
-          (set-buffer-modified-p nil)
-          (let* ((before (buffer-string))
-                 (beg (point-min))
-                 (end (save-excursion
-                        (goto-char beg)
-                        (org-end-of-subtree t t)
-                        (point))))
-            (cl-letf (((symbol-function 'jetpacs-org-save-policy)
-                       (lambda (_buffer)
-                         (goto-char (point-max))
-                         (insert "CORRUPT")
-                         (error "prewrite failed"))))
-              (should-error
-               (bloom-document--replace-subtree
-                buffer beg end "* TODO Changed\nNew.\n"))
-              (should (equal (buffer-string) before))
-              (should-not (buffer-modified-p)))
-            (cl-letf (((symbol-function 'jetpacs-org-save-policy)
-                       (lambda (_buffer) t)))
-              (let ((new-ref (bloom-document--replace-subtree
-                              buffer beg end "* TODO Changed\nNew.\n")))
-                (should (equal (plist-get new-ref :headline) "Changed"))
+(ert-deftest bloom-document-subtree-save-checks-revision-and-rolls-back ()
+  "Writes check the shown revision, restore the buffer on a failed save,
+and the revision a document shows is the one its write checks, CRLF
+files included."
+  (dolist (eol '("\n" "\r\n"))
+    (let* ((file (make-temp-file
+                  "bloom-document" nil ".org"
+                  (replace-regexp-in-string
+                   "\n" eol "* TODO Original\nBody.\n* Keep\nSafe.\n")))
+           (ebp-org-roots (list (file-name-directory file)))
+           (buffer (find-file-noselect file t))
+           (ref (with-current-buffer buffer
+                  (org-mode)
+                  (goto-char (point-min))
+                  (ebp-org-ref-at-point))))
+      (unwind-protect
+          (cl-letf (((symbol-function 'bloom-library-resolve-heading)
+                     (lambda (&rest _) ref))
+                    ((symbol-function 'bloom-document--after-mutation)
+                     #'ignore))
+            (let ((revision (plist-get (bloom-library--document-info "n" "h")
+                                       :revision))
+                  (before (with-current-buffer buffer (buffer-string))))
+              (should (equal revision (ebp-org-subtree-revision ref)))
+              (should (eq (bloom-document-write-subtree
+                           "n" "h" "not-the-revision" "* TODO Changed\n")
+                          'stale))
+              (cl-letf (((symbol-function 'jetpacs-org-save-policy)
+                         (lambda (_buffer)
+                           (goto-char (point-max))
+                           (insert "CORRUPT")
+                           (error "prewrite failed"))))
+                (should-error (bloom-document-write-subtree
+                               "n" "h" revision "* TODO Changed\nNew.")))
+              (with-current-buffer buffer
+                (should (equal (buffer-string) before))
+                (should-not (buffer-modified-p)))
+              (should (stringp (bloom-document-write-subtree
+                                "n" "h" revision "* TODO Changed\nNew.")))
+              (with-temp-buffer
+                (insert-file-contents file)
                 (should (string-prefix-p "* TODO Changed\nNew.\n* Keep"
-                                         (buffer-string)))))))
-      (when (buffer-live-p buffer)
-        (with-current-buffer buffer (set-buffer-modified-p nil))
-        (kill-buffer buffer))
-      (delete-file file))))
+                                         (buffer-string))))))
+        (when (buffer-live-p buffer)
+          (with-current-buffer buffer (set-buffer-modified-p nil))
+          (kill-buffer buffer))
+        (delete-file file)))))
 
 (ert-deftest bloom-planning-commits-the-captured-pair-and-checks-revision ()
   "Planning forwards both fields atomically and rejects a stale document."
@@ -1070,8 +1081,8 @@ Foundation renderer takes its whole appearance from them."
           (should (string-search revision json)))))
     (cl-letf (((symbol-function 'bloom-library-resolve-heading)
                (lambda (&rest _) ref))
-              ((symbol-function 'bloom-document--live-subtree)
-               (lambda (_ref) (list :content content)))
+              ((symbol-function 'ebp-org-subtree-revision)
+               (lambda (_ref) (secure-hash 'sha256 content)))
               ((symbol-function 'ebp-org-set-planning-pair)
                (lambda (&rest args) (setq called args)))
               ((symbol-function 'bloom-document--after-mutation)
@@ -1098,8 +1109,8 @@ Foundation renderer takes its whole appearance from them."
           called)
       (cl-letf (((symbol-function 'bloom-library-resolve-heading)
                  (lambda (&rest _) ref))
-                ((symbol-function 'bloom-document--live-subtree)
-                 (lambda (_ref) (list :content "* TODO Changed\n")))
+                ((symbol-function 'ebp-org-subtree-revision)
+                 (lambda (_ref) (secure-hash 'sha256 "* TODO Changed\n")))
                 ((symbol-function 'ebp-org-set-planning-pair)
                  (lambda (&rest args) (setq called args))))
         (should
@@ -1923,7 +1934,9 @@ checks, run from the foundation's applet tooling."
               ((symbol-function 'jetpacs-chrome-defer-current-view-refresh)
                (lambda (&rest _) (cl-incf refreshes)))
               ((symbol-function 'bloom-document-write-subtree)
-               (lambda (_n _h revision value) (push (cons revision value) writes) "h2")))
+               (lambda (_n _h revision value) (push (cons revision value) writes) "h2"))
+              ((symbol-function 'bloom-document-revision)
+               (lambda (_n h) (concat "rev-" h))))
       (unwind-protect
           (let ((first (jetpacs-node->canonical-json
                         (bloom-edit-screen info (jetpacs-view-switch "outline")))))
@@ -1950,7 +1963,11 @@ checks, run from the foundation's applet tooling."
             (should-not (bloom-edit-save))
             (should (equal (buffer-local-value 'bloom-edit--heading-id
                                                bloom-edit--buffer)
-                           "h2")))
+                           "h2"))
+            ;; The next autosave checks against the written subtree.
+            (should (equal (buffer-local-value 'bloom-edit--revision
+                                               bloom-edit--buffer)
+                           "rev-h2")))
         (when (buffer-live-p bloom-edit--buffer)
           (kill-buffer bloom-edit--buffer))))))
 

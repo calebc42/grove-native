@@ -20,6 +20,7 @@
 (require 'jetpacs-chrome)
 (require 'jetpacs-data)
 (require 'jetpacs-dates)
+(require 'jetpacs-editor-org)
 (require 'jetpacs-org-save)
 (require 'jetpacs-org-render)
 (require 'jetpacs-org-toolbar)
@@ -120,20 +121,6 @@ Return a handler status."
     (unless (and notebook-id heading-id)
       (signal 'ebp-org-unresolved nil))
     (bloom-library-document-snapshot notebook-id heading-id)))
-
-(defun bloom-document--live-subtree (ref)
-  "Return REF's live subtree string and location metadata."
-  (let ((marker (ebp-org-resolve-ref ref)))
-    (unwind-protect
-        (with-current-buffer (marker-buffer marker)
-          (org-with-wide-buffer
-           (goto-char marker)
-           (org-back-to-heading t)
-           (let ((beg (point))
-                 (end (save-excursion (org-end-of-subtree t t) (point))))
-             (list :buffer (current-buffer) :beg beg :end end
-                   :content (buffer-substring-no-properties beg end)))))
-      (set-marker marker nil))))
 
 (defun bloom-document--metadata-nodes (info)
   "Return Bloom metadata nodes for private document INFO."
@@ -471,67 +458,30 @@ Bloom through the same presenter the reader used."
   (ignore-errors (bloom-library-outline-refresh notebook-id))
   (ignore-errors (bloom-library-document-refresh notebook-id heading-id)))
 
-(defun bloom-document--replace-subtree (buffer beg end value)
-  "Replace BUFFER's BEG..END subtree with VALUE and save durably.
-Return the new private Org ref.  Any failure before durability restores the
-entire buffer, point, restriction, and modified flag exactly."
-  (with-current-buffer buffer
-    (let* ((original-beg (point-min))
-           (original-end (point-max))
-           (original-point (point))
-           (original-modified (buffer-modified-p))
-           (original-full
-            (save-restriction
-              (widen)
-              (buffer-substring-no-properties (point-min) (point-max))))
-           (changed nil)
-           (durable nil)
-           new-ref)
-      (save-restriction
-        (unwind-protect
-            (progn
-              (widen)
-              (unless (<= (point-min) beg end (point-max))
-                (signal 'ebp-org-unresolved nil))
-              (let ((inhibit-read-only t))
-                (delete-region beg end)
-                (goto-char beg)
-                (insert value))
-              (setq changed t)
-              (goto-char beg)
-              (org-back-to-heading t)
-              (setq new-ref (ebp-org-ref-at-point))
-              (jetpacs-org-save-policy buffer)
-              (setq durable t)
-              new-ref)
-          (when (and changed (not durable))
-            (let ((inhibit-read-only t)
-                  (buffer-undo-list t))
-              (widen)
-              (delete-region (point-min) (point-max))
-              (insert original-full)
-              (narrow-to-region original-beg original-end)
-              (goto-char (min (max original-point (point-min))
-                              (point-max)))
-              (set-buffer-modified-p original-modified))))))))
+(defun bloom-document-revision (notebook-id heading-id)
+  "Return NOTEBOOK-ID's HEADING-ID subtree revision as it is now.
+The revision is `ebp-org-subtree-revision''s, the one every Bloom write
+checks against.  Signals `ebp-org-unresolved' for an unknown heading."
+  (ebp-org-subtree-revision
+   (or (bloom-library-resolve-heading notebook-id heading-id)
+       (signal 'ebp-org-unresolved nil))))
 
 (defun bloom-document-write-subtree (notebook-id heading-id revision value)
   "Replace NOTEBOOK-ID's HEADING-ID subtree with VALUE when REVISION holds.
-REVISION is the SHA-256 of the subtree text the caller started from.
+REVISION is the `ebp-org-subtree-revision' the caller started from.
 Return the heading's id after the write, which a retitle changes, or the
-symbol `stale' when the file's subtree no longer matches REVISION.  The
-current document and its mode follow the heading to its new id, and
-Bloom's projections refresh.  Signals as the underlying write does."
+symbol `stale' when the subtree no longer matches REVISION.  The current
+document and its mode follow the heading to its new id, and Bloom's
+projections refresh.  The write is `jetpacs-editor-org-revision-splice':
+a failure before durability restores the buffer exactly, and the
+signal propagates."
   (let* ((ref (or (bloom-library-resolve-heading notebook-id heading-id)
                   (signal 'ebp-org-unresolved nil)))
-         (live (bloom-document--live-subtree ref))
-         (submitted (if (string-suffix-p "\n" value) value (concat value "\n"))))
-    (if (not (equal (secure-hash 'sha256 (plist-get live :content)) revision))
+         (submitted (if (string-suffix-p "\n" value) value (concat value "\n")))
+         (new-ref (jetpacs-editor-org-revision-splice ref submitted revision)))
+    (if (eq new-ref 'stale)
         'stale
-      (let* ((new-ref (bloom-document--replace-subtree
-                       (plist-get live :buffer) (plist-get live :beg)
-                       (plist-get live :end) submitted))
-             (new-heading-id (bloom-library--heading-id new-ref))
+      (let* ((new-heading-id (bloom-library--heading-id new-ref))
              (mode (bloom-document--mode notebook-id heading-id)))
         (puthash (bloom-library--heading-key notebook-id new-heading-id)
                  new-ref bloom-library--heading-refs)
@@ -915,11 +865,9 @@ the surface data document, so its button must stay true to them."
                   (stringp deadline)))
         'rejected
       (condition-case err
-          (let* ((ref (or (bloom-library-resolve-heading notebook-id heading-id)
-                          (signal 'ebp-org-unresolved nil)))
-                 (live (bloom-document--live-subtree ref)))
-            (if (not (equal (secure-hash 'sha256 (plist-get live :content))
-                            revision))
+          (let ((ref (or (bloom-library-resolve-heading notebook-id heading-id)
+                         (signal 'ebp-org-unresolved nil))))
+            (if (not (equal (ebp-org-subtree-revision ref) revision))
                 'stale
               (ebp-org-set-planning-pair ref 'bloom scheduled deadline)
               (bloom-document--after-mutation notebook-id heading-id)
