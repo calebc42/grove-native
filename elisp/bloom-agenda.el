@@ -656,7 +656,8 @@ NOTES default to `bloom-agenda-notes' and TODAY to the current date."
    (jetpacs-row
     ;; System Back reads this leading `arrow_back' button; its 48 dp target
     ;; centres where the app's 36 dp glyph circle centres.
-    (jetpacs-icon-button "arrow_back" back :content-description "Back")
+    (jetpacs-icon-button "arrow_back" (or back (jetpacs-action "bloom.notebooks.open"))
+                         :content-description "Back")
     (jetpacs-spacer :width 2)
     (jetpacs-with-attrs
      (jetpacs-column
@@ -855,6 +856,9 @@ NOTES default to `bloom-agenda-notes' and TODAY to the current date."
     (jetpacs-design-profile-scope
      (jetpacs-design-active-profile bloom-design-profile-id)
      (list
+      (bloom-design-screen-scope
+       (bloom-design-agenda-styles)
+       (list
       (jetpacs-with-semantics
        ;; The app's Agenda has no floating button.  An explicit, empty
        ;; `:fab' keeps the app-default capture button out of the slot.
@@ -880,7 +884,7 @@ NOTES default to `bloom-agenda-notes' and TODAY to the current date."
          :component-styles
          (list (jetpacs-design-component-style "card.filled" '("bloom.agenda.row")))))
         (list :fab nil))
-       :pane-title "Agenda")))))
+       :pane-title "Agenda")))))))
 
 ;;;; Actions
 

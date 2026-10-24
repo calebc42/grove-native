@@ -1017,13 +1017,54 @@ labels, PROPERTIES pairs, LOGBOOK lines, and body blocks."
           :view-source (plist-get view :source)
           :view-kind (plist-get view :kind))))
 
+(defun bloom-library-org-ql-available-p ()
+  "Non-nil when org-ql can be loaded for Lisp-form queries."
+  (require 'org-ql nil t))
+
+(defun bloom-library--notebook-files ()
+  "Return every notebook file in Bloom's scope."
+  (delq nil (mapcar (lambda (record)
+                      (bloom-library-resolve-notebook (plist-get record :id)))
+                    (plist-get bloom-library--snapshot :notebooks))))
+
+(defun bloom-library--org-ql-rows (query limit)
+  "Return up to LIMIT search rows for org-ql QUERY, a Lisp form as text.
+Rows have the shape of `jetpacs-org-mode-search-items' rows, so the same
+projection turns them into results."
+  (unless (bloom-library-org-ql-available-p)
+    (user-error "The org-ql package is not installed"))
+  (let ((form (car (read-from-string query))))
+    (unless (consp form) (user-error "An org-ql query is a Lisp form"))
+    (seq-take
+     (with-no-warnings
+       (org-ql-select (bloom-library--notebook-files) form
+         :action (lambda ()
+                   (let ((components (org-heading-components)))
+                     (list (cons 'ref (ebp-org-ref-at-point))
+                           (cons 'headline (or (nth 4 components) ""))
+                           (cons 'todo (nth 2 components))
+                           (cons 'priority (and (nth 3 components)
+                                                (char-to-string (nth 3 components))))
+                           (cons 'tags (vconcat (org-get-tags nil t))))))))
+     limit)))
+
+(defun bloom-library-search-rows (query mode &optional limit)
+  "Return native search rows for QUERY in MODE, up to LIMIT.
+MODE is \"text\" (Org's agenda text search), \"match\" (Org's
+tags/property/TODO match) or \"ql\" (an org-ql Lisp form)."
+  (let ((limit (or limit bloom-search-result-limit)))
+    (if (equal mode "ql")
+        (bloom-library--org-ql-rows query limit)
+      (jetpacs-org-mode-search-items
+       query (if (equal mode "match") 'match 'text) limit))))
+
 (defun bloom-library-search (query mode &optional view)
   "Replace Bloom's search snapshot using QUERY and MODE.
-MODE is the string \"text\" or \"match\".  Optional VIEW identifies a saved
+MODE is the string \"text\", \"match\" or \"ql\".  Optional VIEW identifies a saved
 view that invoked the query.  A failed expression retains the last successful
 result rows and records a safe validation error."
-  (unless (and (stringp query) (member mode '("text" "match")))
-    (user-error "Search requires text or match mode and a string query"))
+  (unless (and (stringp query) (member mode '("text" "match" "ql")))
+    (user-error "Search requires text, match or ql mode and a string query"))
   (if (string-blank-p query)
       (progn
         (setq bloom-library--search-snapshot
@@ -1031,9 +1072,7 @@ result rows and records a safe validation error."
         (run-hooks 'bloom-library-after-refresh-hook)
         t)
     (condition-case err
-        (let ((raw (jetpacs-org-mode-search-items
-                    query (if (equal mode "match") 'match 'text)
-                    bloom-search-result-limit)))
+        (let ((raw (bloom-library-search-rows query mode)))
           (setq bloom-library--search-snapshot
                 (append
                  (list :query query :mode mode
@@ -1084,8 +1123,8 @@ projection.  Failure retains the last successful rows behind a safe error."
 
 (defun bloom-library-search-set-mode (mode)
   "Set Bloom search MODE and clear any saved-view attribution."
-  (unless (member mode '("text" "match"))
-    (user-error "Search mode must be text or match"))
+  (unless (member mode '("text" "match" "ql"))
+    (user-error "Search mode must be text, match or ql"))
   (setq bloom-library--search-snapshot
         (list :query (or (plist-get bloom-library--search-snapshot :query) "")
               :mode mode

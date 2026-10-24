@@ -32,15 +32,17 @@
     ("This Week" "match"
      "SCHEDULED>=\"<today>\"+SCHEDULED<=\"<+7d>\""))
   "Phone-authored Bloom search views.
-Each entry is (NAME MODE QUERY), where MODE is the string \"text\" or
-\"match\".  IDs are derived privately from the complete entry, so this
-configuration contains no Android identity or protocol state.  The default
-is the Android app's three built-in searches, written as Org matches."
+Each entry is (NAME MODE QUERY), where MODE is the string \"text\",
+\"match\" or \"ql\" (an org-ql Lisp form).  IDs are derived privately
+from the complete entry, so this configuration contains no Android
+identity or protocol state.  The default is the Android app's three
+built-in searches, written as Org matches."
   :type '(repeat
           (list :tag "Saved view"
                 (string :tag "Name")
                 (choice (const :tag "Text / regexp" "text")
-                        (const :tag "Org match" "match"))
+                        (const :tag "Org match" "match")
+                        (const :tag "org-ql form" "ql"))
                 (string :tag "Query")))
   :group 'bloom)
 
@@ -63,7 +65,7 @@ is the Android app's three built-in searches, written as Org matches."
        (stringp (nth 0 entry))
        (not (string-blank-p (nth 0 entry)))
        (<= (length (nth 0 entry)) 80)
-       (member (nth 1 entry) '("text" "match"))
+       (member (nth 1 entry) '("text" "match" "ql"))
        (stringp (nth 2 entry))
        (not (string-blank-p (nth 2 entry)))
        (<= (length (nth 2 entry)) 512)))
@@ -276,9 +278,7 @@ is the Android app's three built-in searches, written as Org matches."
           (condition-case err
               (progn
                 ;; Validate through the same native engine before persisting.
-                (jetpacs-org-mode-search-items
-                 query (if (equal mode "match") 'match 'text)
-                 bloom-search-result-limit)
+                (bloom-library-search-rows query mode)
                 (let ((view (bloom-views--add name mode query)))
                   (bloom-library-search query mode view)
                   (jetpacs-app-defer-refresh params)
@@ -294,7 +294,7 @@ is the Android app's three built-in searches, written as Org matches."
                            :bloom-search-query)))
     (cond
      ((jetpacs-event-stale-p params) 'stale)
-     ((not (and (member mode '("text" "match"))
+     ((not (and (member mode '("text" "match" "ql"))
                 (stringp query) (not (string-blank-p query))
                 (<= (length query) 512)))
       'rejected)

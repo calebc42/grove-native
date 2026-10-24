@@ -8,6 +8,10 @@
 (require 'bloom)
 (bloom-register)  ; `require' only loads
 
+(defconst bloom-test--root
+  (file-name-directory (or load-file-name buffer-file-name default-directory))
+  "This test file's directory, for fixtures next to it.")
+
 (defconst bloom-test--now (encode-time 0 30 9 1 9 2026)
   "Stable local time used by Bloom snapshot tests.")
 
@@ -1718,6 +1722,65 @@ checks, run from the foundation's applet tooling."
         (should (equal first (jetpacs-node->canonical-json
                               (bloom-agenda-screen
                                (jetpacs-view-switch "notebooks")))))))))
+
+(ert-deftest bloom-search-picks-the-native-engine-by-query-shape ()
+  "Lisp forms go to org-ql, Org match syntax to the matcher, words to text."
+  (cl-letf (((symbol-function 'bloom-library-org-ql-available-p) (lambda () t)))
+    (should (equal (bloom-search-mode-for "(and (todo) (tags \"work\"))") "ql")))
+  (cl-letf (((symbol-function 'bloom-library-org-ql-available-p) #'ignore))
+    (should (equal (bloom-search-mode-for "(and (todo))") "text")))
+  (dolist (query '("+work/!" "/!" "SCHEDULED<\"<today>\"" "work+urgent" "-home"
+                   "PRIORITY=\"A\""))
+    (should (equal (bloom-search-mode-for query) "match")))
+  (dolist (query '("roadmap" "phone call" "{reg.*exp}"))
+    (should (equal (bloom-search-mode-for query) "text"))))
+
+(ert-deftest bloom-search-quick-cards-are-org-matches-with-the-apps-counts ()
+  "On the parity vault the four cards count as the Android app does."
+  (let* ((vault (expand-file-name "../fixtures/parity-vault" bloom-test--root))
+         (org-agenda-files (list vault (expand-file-name "projects" vault))))
+    (cl-letf (((symbol-function 'bloom-search--done-regexp)
+               (lambda () "^\\(DONE\\)$"))
+              ((symbol-function 'current-time)
+               (lambda () (encode-time 0 0 12 23 10 2026))))
+      (dolist (card (bloom-search-quick-cards))
+        (should (equal (bloom-search-mode-for (plist-get card :query)) "match"))
+        (let ((hits (org-map-entries (lambda () t) (plist-get card :query) 'agenda)))
+          (should (= (length hits)
+                     (pcase (plist-get card :key)
+                       ("overdue" 4) ("today" 1) ("open" 20) ("unscheduled" 13)))))))))
+
+(ert-deftest bloom-search-screen-is-deterministic-and-profile-valid ()
+  "The parity Search screen renders twice alike, blank and with results."
+  (cl-letf (((symbol-function 'bloom-search--count) (lambda (_) 3))
+            ((symbol-function 'bloom-views-snapshot)
+             (lambda () (list :views (list (list :id "v1" :label "All TODO"
+                                                 :mode "match" :query "/!"
+                                                 :source "bloom")))))
+            ((symbol-function 'bloom-search--records)
+             (lambda () (make-hash-table :test #'equal))))
+    (let ((bloom-library--search-snapshot (list :query "" :mode "text")))
+      (let ((first (jetpacs-node->canonical-json
+                    (bloom-search-screen (jetpacs-view-switch "notebooks")))))
+        (should (string-search "QUICK START" first))
+        (should (string-search "3 past their date" first))
+        (should (string-search "SAVED SEARCHES" first))
+        (should (equal first (jetpacs-node->canonical-json
+                              (bloom-search-screen
+                               (jetpacs-view-switch "notebooks")))))))
+    (let ((bloom-library--search-snapshot
+           (list :query "roadmap" :mode "text"
+                 :results (list (list :notebook-id "n1" :heading-id "h1"
+                                      :headline "Finish Q3 roadmap deck"
+                                      :todo "TODO" :priority "A" :tags '("work")
+                                      :notebook-label "tasks")))))
+      (let* ((screen (bloom-search-screen (jetpacs-view-switch "notebooks")))
+             (json (jetpacs-node->canonical-json screen)))
+        (should (string-search "1 result " json))
+        (should (string-search " 1 notebook" json))
+        (should (string-search "Finish Q3 roadmap deck" json))
+        (should (string-search "[#A]" json))
+        (should (jetpacs-check-profile screen 'app))))))
 
 (ert-deftest bloom-edit-inline-tokens-follow-the-apps-claiming-order ()
   "Links and timestamps claim first; emphasis needs Org's boundaries."

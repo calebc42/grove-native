@@ -566,7 +566,31 @@ The order is the app's `MONOGRAM_PALETTE_KEYS', which its name hash indexes.")
     ("agenda-state" "plex-mono" 9.5 700 nil 0.48)
     ("agenda-meta" "plex-mono" 11.5 400 nil)
     ("agenda-priority" "plex-mono" 10 700 nil)
-    ("agenda-empty-caption" "plex-sans" 12.5 400 "muted"))
+    ("agenda-empty-caption" "plex-sans" 12.5 400 "muted")
+    ("search-input" "plex-sans" 15 400 "on-background" 0 1.3)
+    ("search-clear" "plex-mono" 15 400 "faint")
+    ("search-star" "plex-mono" 22 400 "on-background")
+    ("search-count" "plex-sans" 12 400 "muted")
+    ("search-advanced" "plex-sans" 12 600 nil)
+    ("search-ops-label" "plex-sans" 11.5 600 "muted" 0 1 trimmed)
+    ("search-op" "plex-mono" 11 400 "muted")
+    ("search-section" "plex-sans" 11 600 "faint" 0.77)
+    ("search-card-title" "plex-sans" 14 600 "on-background")
+    ("search-card-meta" "plex-sans" 11.5 400 "muted")
+    ("search-saved-star" "plex-sans" 14 400 "primary")
+    ("search-saved-name" "plex-sans" 14 500 "on-background")
+    ("search-saved-query" "plex-mono" 11 400 "faint")
+    ("search-caret" "plex-sans" 11 400 "faint")
+    ("search-file" "plex-mono" 12.5 600 "on-background")
+    ("search-file-meta" "plex-sans" 11.5 400 "faint")
+    ("search-pill" "plex-sans" 11 600 nil)
+    ("search-priority" "plex-mono" 11 700 nil)
+    ("search-title" "plex-sans" 14.5 400 "on-background")
+    ("search-title-done" "plex-sans" 14.5 400 "faint")
+    ("search-date" "plex-mono" 10.5 600 nil)
+    ("search-tags" "plex-mono" 11 400 "syn-tag")
+    ("search-loosen" "plex-sans" 13 600 "on-background")
+    ("search-filters" "plex-sans" 14.5 600 "on-primary"))
   "The Android app's literal text roles, one face per distinct `Text' call.
 Each entry is name, family, size, weight, color, tracking, line height in
 em, and optionally `trimmed', and becomes style `bloom.t.NAME'.  A
@@ -578,7 +602,8 @@ Material's `bodyLarge', which Bloom sets to 1.65 em, while those that name a
 style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
 
 (defconst bloom-design-struck-roles
-  '("outline-title-done" "outline-title-sub-done" "agenda-title-done")
+  '("outline-title-done" "outline-title-sub-done" "agenda-title-done"
+    "search-title-done")
   "Text roles the app strikes through: a finished heading's title.")
 
 (defun bloom-design--text-role-styles ()
@@ -744,7 +769,7 @@ KIND is `dp', `color' (a palette name), `bool' or `weight'."
                      ('bool (jetpacs-design-boolean (if value t :json-false))))))
            properties)))
 
-(defun bloom-design--agenda-styles ()
+(defun bloom-design-agenda-styles ()
   "Return the Agenda's boxes: levers, tabs, panel, chips, card and rows."
   (append
    `(("bloom.agenda.levers"
@@ -842,6 +867,102 @@ KIND is `dp', `color' (a palette name), `bool' or `weight'."
                       ("padding_horizontal" dp 5) ("padding_vertical" dp 2)))))
            '(("warning" . "warning-soft") ("success" . "success-soft")
              ("raised" . "surface-raised")))))
+
+(defun bloom-design-screen-scope (styles children)
+  "Return a design scope declaring screen STYLES around CHILDREN.
+A profile holds at most 256 styles, so styles used by one screen live in
+a scope on that screen.  The scope re-declares the active profile's color
+tokens, which its styles name, so every preset still colors them."
+  (let ((profile (jetpacs-design-active-profile bloom-design-profile-id)))
+    (jetpacs-design-scope
+     (seq-filter (lambda (token) (string-prefix-p "color." (car token)))
+                 (bloom-design--profile-pairs (plist-get profile :tokens)))
+     styles children)))
+
+(defun bloom-design--profile-pairs (map)
+  "Return identifier MAP, an alist or plist, as (NAME . VALUE) pairs."
+  (cond
+   ((and (consp map) (consp (car map))) map)
+   ((hash-table-p map)
+    (let (pairs) (maphash (lambda (k v) (push (cons k v) pairs)) map)
+         (nreverse pairs)))
+   (t (cl-loop for (key value) on map by #'cddr
+               collect (cons (string-remove-prefix ":" (symbol-name key)) value)))))
+
+(defun bloom-design-search-styles ()
+  "Return Search's boxes: field, toggles, cards, groups, pills and bars.
+A bordered box pads one dp less than the app, which the receiver insets."
+  (append
+   `(("bloom.search.field"
+      . ,(bloom-design--box-style '(("height" dp 42) ("corner_radius" dp 13)
+                                    ("background_color" color "surface")
+                                    ("border_width" dp 1) ("border_color" color "line")
+                                    ("padding_horizontal" dp 11) ("fill_width" bool t))))
+     ;; The text input sits bare inside the field box.
+     ("bloom.search.input"
+      . ,(bloom-design--box-style '(("background_color" color "surface")
+                                    ("border_width" dp 0) ("border_color" color "surface")
+                                    ("padding" dp 0) ("fill_width" bool t))))
+     ("bloom.search.advanced"
+      . ,(bloom-design--box-style '(("corner_radius" dp 8) ("padding_horizontal" dp 10)
+                                    ("padding_vertical" dp 5))))
+     ("bloom.search.advanced-on"
+      . ,(bloom-design--box-style '(("background_color" color "primary"))))
+     ("bloom.search.advanced-off"
+      . ,(bloom-design--box-style '(("background_color" color "surface-raised"))))
+     ("bloom.search.ops"
+      . ,(bloom-design--box-style '(("corner_radius" dp 13) ("fill_width" bool t)
+                                    ("background_color" color "surface")
+                                    ("border_width" dp 1) ("border_color" color "line")
+                                    ("padding" dp 12))))
+     ("bloom.search.op"
+      . ,(bloom-design--box-style '(("corner_radius" dp 6)
+                                    ("background_color" color "surface-raised")
+                                    ("padding_horizontal" dp 8) ("padding_vertical" dp 3))))
+     ("bloom.search.card"
+      . ,(bloom-design--box-style '(("corner_radius" dp 14) ("fill_width" bool t)
+                                    ("background_color" color "surface")
+                                    ("border_width" dp 1) ("border_color" color "line")
+                                    ("padding_horizontal" dp 12) ("padding_vertical" dp 11))))
+     ("bloom.search.saved"
+      . ,(bloom-design--box-style '(("corner_radius" dp 12) ("fill_width" bool t)
+                                    ("padding_horizontal" dp 12) ("padding_vertical" dp 10))))
+     ("bloom.search.group"
+      . ,(bloom-design--box-style '(("fill_width" bool t)
+                                    ("background_color" color "background")
+                                    ("padding_horizontal" dp 6) ("padding_vertical" dp 9))))
+     ("bloom.search.loosen"
+      . ,(bloom-design--box-style '(("corner_radius" dp 11)
+                                    ("background_color" color "surface-raised")
+                                    ("padding_horizontal" dp 17) ("padding_vertical" dp 10))))
+     ("bloom.search.filters-bar"
+      . ,(bloom-design--box-style '(("fill_width" bool t)
+                                    ("background_color" color "surface")
+                                    ("padding_horizontal" dp 12) ("padding_vertical" dp 10))))
+     ("bloom.search.filters"
+      . ,(bloom-design--box-style '(("corner_radius" dp 13) ("fill_width" bool t)
+                                    ("background_color" color "primary")
+                                    ("padding_vertical" dp 13)))))
+   (mapcar (pcase-lambda (`(,tone . ,fill))
+             (cons (concat "bloom.search.card-icon-" tone)
+                   (bloom-design--box-style
+                    `(("width" dp 30) ("height" dp 30) ("corner_radius" dp 9)
+                      ("background_color" color ,fill)))))
+           '(("error" . "error-soft") ("warning" . "warning-soft")
+             ("info" . "info-soft") ("syn-tag" . "accent-soft")))
+   (mapcar (pcase-lambda (`(,tone . ,fill))
+             (cons (concat "bloom.search.pill-" tone)
+                   (bloom-design--box-style
+                    `(("corner_radius" dp 20) ("background_color" color ,fill)
+                      ("padding_horizontal" dp 9) ("padding_vertical" dp 3)))))
+           '(("warning" . "warning-soft") ("success" . "success-soft")))
+   (mapcar (pcase-lambda (`(,tone . ,fill))
+             (cons (concat "bloom.search.date-" tone)
+                   (bloom-design--box-style
+                    `(("corner_radius" dp 6) ("background_color" color ,fill)
+                      ("padding_horizontal" dp 7) ("padding_vertical" dp 3)))))
+           '(("error" . "error-soft") ("warning" . "warning-soft")
+             ("info" . "info-soft")))))
 
 ;;;; Edit mode
 
@@ -942,7 +1063,6 @@ tokens; nil turns a role default off.")
    (bloom-design--text-role-styles)
    (bloom-design--read-styles)
    (bloom-design--edit-styles)
-   (bloom-design--agenda-styles)
    (bloom-design--monogram-styles)
    (bloom-design--ink-styles)
    (bloom-design--chip-styles)

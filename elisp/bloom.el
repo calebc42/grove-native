@@ -36,6 +36,7 @@
 (require 'bloom-ui)
 (require 'bloom-document)
 (require 'bloom-agenda)
+(require 'bloom-search)
 (require 'bloom-reminders)
 (require 'bloom-structure)
 (require 'bloom-views)
@@ -158,6 +159,7 @@
   (bloom-views-register)
   (bloom-document-register)
   (bloom-agenda-register)
+  (bloom-search-register)
   (bloom-reminders-register)
   (bloom-widgets-register)
   (jetpacs-defapp "bloom"

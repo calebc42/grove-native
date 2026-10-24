@@ -51,8 +51,9 @@ emacs -Q --batch \
   "$bloom_root/elisp/bloom-reminders.el" \
   "$bloom_root/elisp/bloom-structure.el" \
   "$bloom_root/elisp/bloom-views.el" \
+  "$bloom_root/elisp/bloom-search.el" \
   "$bloom_root/elisp/bloom-navigation.el" \
   "$bloom_root/elisp/bloom-widgets.el" \
   "$bloom_root/elisp/bloom.el"
 
-test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 15
+test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 16

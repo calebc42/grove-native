@@ -1425,10 +1425,18 @@ own outline; otherwise the Material outline, scoped when possible."
   "Build Bloom's native search destination with BACK."
   (jetpacs-chrome-screen "Search" (bloom-navigation--search-body) :back back))
 
+(declare-function bloom-search-screen "bloom-search" (back))
+
 (defun bloom-navigation-presented-search-screen (back)
-  "Build the profile-selected Search destination with BACK."
-  (bloom-design-present-if-advertised
-   (bloom-navigation-search-screen back) 'search))
+  "Build the profile-selected Search destination with BACK.
+Under the design runtime with Bloom's parity faces it is the Android app's
+own Search screen, answered by native Emacs search."
+  (if (and (fboundp 'bloom-search-screen)
+           (jetpacs-extension-advertised-p "jetpacs.design" :app)
+           (bloom-design-parity-available-p))
+      (bloom-search-screen back)
+    (bloom-design-present-if-advertised
+     (bloom-navigation-search-screen back) 'search)))
 
 (defun bloom-navigation-settings-screen (back)
   "Build Bloom's app-specific settings destination with BACK."
@@ -1745,7 +1753,7 @@ moves the notebook to the recoverable trash after a confirmation."
                    (plist-get (bloom-library-search-snapshot) :mode)
                    "text")))
     (if (not (and (stringp query) (<= (length query) 512)
-                  (member mode '("text" "match"))))
+                  (member mode '("text" "match" "ql"))))
         'rejected
       (bloom-library-search query mode)
       (jetpacs-app-defer-refresh params)
@@ -1754,7 +1762,7 @@ moves the notebook to the recoverable trash after a confirmation."
 (defun bloom-navigation--on-search-mode (args params)
   "Switch to ARGS' search mode and refresh PARAMS' surface."
   (let ((mode (plist-get args :mode)))
-    (if (not (member mode '("text" "match"))) 'rejected
+    (if (not (member mode '("text" "match" "ql"))) 'rejected
       (bloom-library-search-set-mode mode)
       (jetpacs-app-defer-refresh params)
       'accepted)))
