@@ -37,6 +37,7 @@
 (require 'bloom-document)
 (require 'bloom-agenda)
 (require 'bloom-search)
+(require 'bloom-settings)
 (require 'bloom-reminders)
 (require 'bloom-structure)
 (require 'bloom-views)
@@ -160,6 +161,7 @@
   (bloom-document-register)
   (bloom-agenda-register)
   (bloom-search-register)
+  (bloom-settings-register)
   (bloom-reminders-register)
   (bloom-widgets-register)
   (jetpacs-defapp "bloom"
@@ -191,6 +193,7 @@ app entry.  The module unregisters below reset state only they hold."
   (bloom-views-unregister)
   (bloom-reminders-unregister)
   (bloom-document-unregister)
+  (bloom-settings-unregister)
   (bloom-org-unregister)
   (bloom-library-reset)
   (bloom-design-unregister)

@@ -1791,6 +1791,57 @@ checks, run from the foundation's applet tooling."
     (should (<= (+ profile (length (bloom-design-agenda-styles))) 256))
     (should (<= (+ profile (length (bloom-design-search-styles)) 2) 256))))
 
+(ert-deftest bloom-settings-register-beside-the-jetpacs-settings-hub ()
+  "Bloom joins the settings hub and registry, and leaves both on teardown."
+  (let ((jetpacs-settings-hub-entries nil) (jetpacs-settings-registry nil))
+    (bloom-settings-register)
+    (should (assoc "bloom" jetpacs-settings-hub-entries))
+    (should (equal (plist-get (cdr (assoc "bloom" jetpacs-settings-hub-entries)) :title)
+                   "Bloom"))
+    (let ((section (cdr (assoc "Bloom" jetpacs-settings-registry))))
+      (should (assq 'bloom-agenda-show-tags section))
+      (should (assq 'bloom-reminders-enabled section))
+      (should-not (assq 'jetpacs-design-active-profile-id section)))
+    (bloom-settings-unregister)
+    (should-not (assoc "bloom" jetpacs-settings-hub-entries))
+    (should-not (assoc "Bloom" jetpacs-settings-registry))))
+
+(ert-deftest bloom-settings-change-only-touches-blooms-options ()
+  "The change action applies Bloom's options and refuses everything else."
+  (let ((bloom-agenda-show-file nil) applied)
+    (cl-letf (((symbol-function 'jetpacs-settings-apply)
+               (lambda (symbol value &optional _after)
+                 (push (cons symbol value) applied) (set symbol value) t))
+              ((symbol-function 'jetpacs-app-defer-refresh) #'ignore))
+      (should (eq (bloom-settings-on-change
+                   '(:name "bloom-agenda-show-file" :value "t") nil)
+                  'accepted))
+      (should (equal applied '((bloom-agenda-show-file . t))))
+      (should (eq (bloom-settings-on-change
+                   '(:name "org-directory" :value "\"/tmp\"") nil)
+                  'rejected))
+      (should (eq (bloom-settings-on-change
+                   '(:name "jetpacs-design-active-profile-id" :value "\"nope\"") nil)
+                  'rejected))
+      (should (= (length applied) 1)))))
+
+(ert-deftest bloom-settings-screens-are-deterministic-and-profile-valid ()
+  "The root and every page render twice alike and pass the app profile."
+  (let ((root (bloom-settings-root-screen (jetpacs-view-switch "notebooks"))))
+    (should (jetpacs-check-profile root 'app))
+    (let ((json (jetpacs-node->canonical-json root)))
+      (should (string-search "Look and Feel" json))
+      (should (string-search "bloom.settings.page" json))
+      (should (equal json (jetpacs-node->canonical-json
+                           (bloom-settings-root-screen
+                            (jetpacs-view-switch "notebooks")))))))
+  (dolist (page (bloom-settings-pages))
+    (let ((screen (bloom-settings-page-screen (plist-get page :key)
+                                              (jetpacs-view-switch "notebooks"))))
+      (should (jetpacs-check-profile screen 'app))
+      (should (string-search (plist-get page :title)
+                             (jetpacs-node->canonical-json screen))))))
+
 (ert-deftest bloom-edit-inline-tokens-follow-the-apps-claiming-order ()
   "Links and timestamps claim first; emphasis needs Org's boundaries."
   (should (equal (bloom-edit-inline-tokens "see *bold* and /it/ now")

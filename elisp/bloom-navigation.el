@@ -1524,10 +1524,18 @@ own Search screen, answered by native Emacs search."
     :spacing 10 :content-padding 12)
    :back back))
 
+(declare-function bloom-settings-root-screen "bloom-settings" (back))
+
 (defun bloom-navigation-presented-settings-screen (back)
-  "Build the profile-selected Settings destination with BACK."
-  (bloom-design-present-if-advertised
-   (bloom-navigation-settings-screen back) 'settings))
+  "Build the profile-selected Settings destination with BACK.
+Under the design runtime with Bloom's parity faces it is the Android app's
+own Settings layout over Bloom's options."
+  (if (and (fboundp 'bloom-settings-root-screen)
+           (jetpacs-extension-advertised-p "jetpacs.design" :app)
+           (bloom-design-parity-available-p))
+      (bloom-settings-root-screen back)
+    (bloom-design-present-if-advertised
+     (bloom-navigation-settings-screen back) 'settings)))
 
 (defun bloom-navigation--on-library-refresh (_args params)
   "Refresh library and outline projections for event PARAMS."

@@ -590,7 +590,12 @@ The order is the app's `MONOGRAM_PALETTE_KEYS', which its name hash indexes.")
     ("search-date" "plex-mono" 10.5 600 nil)
     ("search-tags" "plex-mono" 11 400 "syn-tag")
     ("search-loosen" "plex-sans" 13 600 "on-background")
-    ("search-filters" "plex-sans" 14.5 600 "on-primary"))
+    ("search-filters" "plex-sans" 14.5 600 "on-primary")
+    ("settings-label" "plex-sans" 14.5 500 "on-background")
+    ("settings-description" "plex-sans" 12 400 "muted")
+    ("settings-chevron" "plex-mono" 14 400 "muted")
+    ("settings-section" "plex-sans" 12 600 "primary" 1)
+    ("settings-id" "plex-mono" 11.5 400 "faint"))
   "The Android app's literal text roles, one face per distinct `Text' call.
 Each entry is name, family, size, weight, color, tracking, line height in
 em, and optionally `trimmed', and becomes style `bloom.t.NAME'.  A
@@ -890,6 +895,13 @@ styles name, so every preset still colors them."
          (nreverse pairs)))
    (t (cl-loop for (key value) on map by #'cddr
                collect (cons (string-remove-prefix ":" (symbol-name key)) value)))))
+
+(defun bloom-design-settings-styles ()
+  "Return Settings' boxes: the rounded group card."
+  `(("bloom.settings.group"
+     . ,(bloom-design--box-style '(("corner_radius" dp 15) ("fill_width" bool t)
+                                   ("background_color" color "surface")
+                                   ("border_width" dp 1) ("border_color" color "line"))))))
 
 (defun bloom-design-search-styles ()
   "Return Search's boxes: field, toggles, cards, groups, pills and bars.
