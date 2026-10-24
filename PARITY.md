@@ -32,6 +32,9 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 - **Agenda, options panel:** the grouping chips, the state filter and the
   three row toggles.
 - **Agenda actions:** ticking a row done, "Move to today", and the row swipes.
+- **Search:** the field row, the result count, the Advanced toggle and its
+  operators panel, the Quick Start cards, saved searches, results grouped by
+  notebook, and the Filters bar.
 
 ## Partly matched
 
@@ -44,6 +47,20 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 - **Agenda swipes:** the app offers a "Note" cell that logs a note into the
   LOGBOOK, and Bloom doesn't. The app also shows an undo snackbar after each
   change. Bloom shows a plain notice after "Move to today" only.
+- **Search queries:** Bloom deliberately doesn't copy the app's query
+  language. A Lisp form runs through org-ql when it's installed. Org match
+  syntax runs through Org's matcher, and anything else through Org's text
+  search. The four Quick Start cards are Org match queries, and they count
+  the parity vault exactly as the app does.
+- **Search filters:** the app's Filters sheet isn't built. Bloom's Filters
+  button opens the operators panel instead.
+- **Search as you type:** the app searches on every keystroke. Bloom searches
+  when the keyboard's search key is pressed.
+- **Search text matches:** the app also lists body-text snippets with the
+  matched words highlighted. Bloom lists matching headings only.
+- **org-ql text queries:** org-ql's text query syntax, such as `todo:TODO`,
+  fails on Emacs 31 with an assertion inside its parser. Bloom passes only
+  Lisp-form queries to org-ql.
 - **Agenda title spacing:** the app tightens the day title by -0.21 sp.
   Jetpacs design dimensions can't be negative, so Bloom leaves it out.
 
@@ -54,9 +71,6 @@ the app draws its own glyphs, such as the back arrow and the menu icon.
 These work in Bloom Native today, but in Bloom's earlier Jetpacs-styled
 look, not the app's.
 
-- **Search:** the query screen, saved searches, results grouped by notebook,
-  the filters sheet and the advanced query syntax. Bloom has a search screen
-  and saved views.
 - **Settings:** the app has a root page and fifteen sections. They are
   Agenda, Appearance, Backup, Capture templates, Notebooks, Notes, Reminders,
   Roam, Sharing, Sync, Tips, What's new, Widget, Developer and Bug report.
