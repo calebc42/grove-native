@@ -1808,10 +1808,28 @@ checks, run from the foundation's applet tooling."
         (should (jetpacs-check-profile screen 'app))))))
 
 (ert-deftest bloom-screen-scopes-stay-within-the-receivers-style-cap ()
-  "Profile styles plus a screen's own stay at or under 256 in effect."
-  (let ((profile (length (plist-get (bloom-design-light-profile) :styles))))
-    (should (<= (+ profile (length (bloom-design-agenda-styles))) 256))
-    (should (<= (+ profile (length (bloom-design-search-styles)) 2) 256))))
+  "Profile styles plus a screen's own stay at or under 256 in effect.
+The profile counts as the receiver sees it: one generated style per
+typography role on top of the declared styles.  Each pushed screen is
+measured, so a style added anywhere is caught here, not on a device."
+  (let* ((profile (bloom-design-light-profile))
+         (in-profile (+ (length (plist-get profile :styles))
+                        (length (plist-get profile :typography))))
+         (shared (mapcar #'car (plist-get profile :styles))))
+    (dolist (scope (list (bloom-design-agenda-styles)
+                         (bloom-design-search-styles)
+                         (bloom-design-settings-styles)))
+      ;; A scope re-declaring a profile style adds nothing to the count.
+      (should (<= (+ in-profile
+                     (seq-count (lambda (style) (not (member (car style) shared)))
+                                scope))
+                  256)))
+    ;; Screen-only text roles live with their screen, not in the profile.
+    (should-not (assoc "bloom.t.agenda-day" (plist-get profile :styles)))
+    (should (assoc "bloom.t.agenda-day" (bloom-design-agenda-styles)))
+    (should-not (assoc "bloom.t.search-input" (plist-get profile :styles)))
+    (should (assoc "bloom.t.search-input" (bloom-design-search-styles))))
+  (should (jetpacs-check-profile (bloom-agenda-screen nil) 'app)))
 
 (ert-deftest bloom-settings-register-beside-the-jetpacs-settings-hub ()
   "Bloom joins the settings hub and registry, and leaves both on teardown."

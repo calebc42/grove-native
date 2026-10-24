@@ -612,8 +612,24 @@ style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
     "search-title-done")
   "Text roles the app strikes through: a finished heading's title.")
 
-(defun bloom-design--text-role-styles ()
+(defconst bloom-design--screen-text-role-prefixes '("agenda-" "search-")
+  "Text roles that live in their screen's scope instead of the profile.
+The receiver caps the styles in effect at 256, the profile's and a screen
+scope's together; text roles only one screen uses would otherwise count
+against every screen.")
+
+(defun bloom-design--screen-text-role-p (name &optional screen)
+  "Non-nil when text role NAME belongs to SCREEN's scope.
+SCREEN is a prefix such as \"agenda-\"; nil means any screen's."
+  (if screen
+      (string-prefix-p screen name)
+    (seq-some (lambda (prefix) (string-prefix-p prefix name))
+              bloom-design--screen-text-role-prefixes)))
+
+(defun bloom-design--text-role-styles (&optional screen)
   "Return one exact text style per entry of `bloom-design-text-roles'.
+Without SCREEN, the shared roles the profile carries; with SCREEN, a
+prefix in `bloom-design--screen-text-role-prefixes', only that screen's.
 Roles in `bloom-design-struck-roles' also strike through."
   (mapcar
    (pcase-lambda (`(,name ,family ,size ,weight ,color ,tracking ,line ,leading))
@@ -633,7 +649,11 @@ Roles in `bloom-design-struck-roles' also strike through."
                   `(("strike_through" . ,(jetpacs-design-boolean t))))
              (unless (eq leading 'trimmed)
                (bloom-design--untrimmed-leading size (or line 1.65)))))))
-   bloom-design-text-roles))
+   (seq-filter (lambda (role)
+                 (if screen
+                     (bloom-design--screen-text-role-p (car role) screen)
+                   (not (bloom-design--screen-text-role-p (car role)))))
+               bloom-design-text-roles)))
 
 (defun bloom-design--untrimmed-leading (size line)
   "Return the box that restores the leading a trimmed renderer drops.
@@ -776,8 +796,10 @@ KIND is `dp', `color' (a palette name), `bool' or `weight'."
            properties)))
 
 (defun bloom-design-agenda-styles ()
-  "Return the Agenda's boxes: levers, tabs, panel, chips, card and rows."
+  "Return the Agenda's text roles and boxes: levers, tabs, panel, chips,
+card and rows."
   (append
+   (bloom-design--text-role-styles "agenda-")
    `(("bloom.agenda.levers"
       . ,(bloom-design--box-style '(("width" dp 36) ("height" dp 36)
                                     ("corner_radius" dp 11))))
@@ -935,9 +957,11 @@ styles name, so every preset still colors them."
                                    ("background_color" color "on-primary"))))))
 
 (defun bloom-design-search-styles ()
-  "Return Search's boxes: field, toggles, cards, groups, pills and bars.
-A bordered box pads one dp less than the app, which the receiver insets."
+  "Return Search's text roles and boxes: field, toggles, cards, groups,
+pills and bars.  A bordered box pads one dp less than the app, which the
+receiver insets."
   (append
+   (bloom-design--text-role-styles "search-")
    `(("bloom.search.field"
       . ,(bloom-design--box-style '(("height" dp 42) ("corner_radius" dp 13)
                                     ("background_color" color "surface")
