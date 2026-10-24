@@ -222,9 +222,17 @@ and the row degrades to the canonical composition."
       :icon "add" :variant "filled" :expanded "auto")
      :on-refresh (jetpacs-action "bloom.agenda.refresh"))))
 
+(declare-function bloom-agenda-screen "bloom-agenda" (back))
+
 (defun bloom-ui-presented-screen (back)
-  "Build Agenda with BACK for the advertised app design extension."
-  (bloom-design-present-if-advertised (bloom-ui-screen back) 'agenda))
+  "Build Agenda with BACK for the advertised app design extension.
+Under the design runtime with Bloom's parity faces it is the Android app's
+own Agenda."
+  (if (and (fboundp 'bloom-agenda-screen)
+           (jetpacs-extension-advertised-p "jetpacs.design" :app)
+           (bloom-design-parity-available-p))
+      (bloom-agenda-screen back)
+    (bloom-design-present-if-advertised (bloom-ui-screen back) 'agenda)))
 
 (provide 'bloom-ui)
 ;;; bloom-ui.el ends here

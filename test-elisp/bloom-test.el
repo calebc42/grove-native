@@ -155,7 +155,9 @@
     (cl-letf (((symbol-function 'jetpacs-extension-advertised-p)
                (lambda (extension target)
                  (and (equal extension "jetpacs.design")
-                      (eq target :app)))))
+                      (eq target :app))))
+              ;; A portable profile without Bloom's parity faces.
+              ((symbol-function 'bloom-design-parity-available-p) #'ignore))
       (let* ((first (bloom-ui-presented-screen nil))
              (second (bloom-ui-presented-screen nil))
              (json (jetpacs-node->canonical-json first)))
@@ -1623,6 +1625,99 @@ checks, run from the foundation's applet tooling."
     (should (string-match-p "Status: SYMMETRIC" report))
     (should (string-match-p "Registered on entry: yes" report)))
   (should (assoc "bloom" jetpacs-apps--registry)))
+
+(defun bloom-test--agenda-note (title &rest props)
+  "Return an agenda note titled TITLE with PROPS over safe defaults."
+  (append props
+          (list :notebook-id "n" :heading-id (concat "h-" title) :file "tasks.org"
+                :title title :tags nil :active nil
+                :active-keywords '("TODO"))))
+
+(ert-deftest bloom-agenda-timestamps-and-day-labels-follow-the-app ()
+  "Stamps keep time, range and repeater; days read as the app names them."
+  (should (equal (bloom-agenda-parse-timestamp "<2026-09-05 Sat 09:00-11:00 +1w>")
+                 '(:date "2026-09-05" :time "09:00" :end "11:00" :repeater "+1w"
+                   :range-end nil)))
+  (should (equal (plist-get (bloom-agenda-parse-timestamp "<2026-10-27 Tue 9:05>") :time)
+                 "09:05"))
+  (should-not (bloom-agenda-parse-timestamp "no stamp"))
+  (should (equal (bloom-agenda-day-label "2026-10-23" "2026-10-23") "Today"))
+  (should (equal (bloom-agenda-day-label "2026-10-24" "2026-10-23") "Tomorrow"))
+  (should (equal (bloom-agenda-day-label "2026-10-22" "2026-10-23") "Yesterday"))
+  (should (equal (bloom-agenda-day-label "2026-10-27" "2026-10-23") "Tuesday"))
+  (should (equal (bloom-agenda-day-label "2026-11-01" "2026-10-23")
+                 "Sunday, Nov 1")))
+
+(ert-deftest bloom-agenda-state-buckets-today-overdue-and-upcoming ()
+  "One day per plan, overdue oldest first, the window, and the app's meta."
+  (let* ((bloom-agenda--tab 'today)
+         (bloom-agenda-grouping-today "date") (bloom-agenda-grouping-upcoming "date")
+         (bloom-agenda-filter-today "open") (bloom-agenda-filter-upcoming "open")
+         (bloom-agenda-show-tags t) (bloom-agenda-show-file nil)
+         (bloom-agenda-show-timestamps nil)
+         (notes
+          (list
+           (bloom-test--agenda-note
+            "Deck" :keyword "TODO" :priority "A" :tags '("work" "planning")
+            :scheduled (bloom-agenda-parse-timestamp "<2026-10-23 Fri>"))
+           (bloom-test--agenda-note
+            "Vendor" :deadline (bloom-agenda-parse-timestamp "<2026-10-21 Wed>"))
+           (bloom-test--agenda-note
+            "Belcanto" :keyword "TODO"
+            :scheduled (bloom-agenda-parse-timestamp "<2026-09-05 Sat 09:00-11:00 +1w>")
+            :deadline (bloom-agenda-parse-timestamp "<2026-09-26 Sat>"))
+           (bloom-test--agenda-note
+            "Cabin" :keyword "TODO"
+            :scheduled (bloom-agenda-parse-timestamp "<2026-10-24 Sat>"))
+           (bloom-test--agenda-note
+            "Far" :keyword "TODO"
+            :scheduled (bloom-agenda-parse-timestamp "<2026-12-24 Thu>"))
+           (bloom-test--agenda-note
+            "Expenses" :keyword "DONE" :done t
+            :scheduled (bloom-agenda-parse-timestamp "<2026-10-23 Fri>"))))
+         (state (bloom-agenda-state notes "2026-10-23")))
+    (should (equal (plist-get state :day) "Friday"))
+    (should (equal (plist-get state :date) "October 23"))
+    (should (= (plist-get state :today-count) 1))
+    (should (equal (mapcar (lambda (n) (plist-get n :title)) (plist-get state :overdue))
+                   '("Belcanto" "Vendor")))
+    (let ((section (car (plist-get state :sections))))
+      (should (equal (plist-get section :label) "Scheduled today"))
+      (should (equal (plist-get (car (plist-get section :rows)) :meta)
+                     '((":work:planning:" tag nil)))))
+    (should (equal (bloom-agenda--meta (nth 2 notes) "2026-10-23" t)
+                   '(("Sep 5 · 48d late" danger nil) ("09:00–11:00" normal nil)
+                     ("⚑ Sep 26" danger nil) ("↻ +1w" muted nil))))
+    (should (equal (bloom-agenda--meta (nth 1 notes) "2026-10-23" t)
+                   '(("⚑ Oct 21 · 2d late" danger nil))))
+    (let* ((bloom-agenda--tab 'upcoming)
+           (upcoming (bloom-agenda-state notes "2026-10-23")))
+      (should (equal (mapcar (lambda (s) (plist-get s :label))
+                             (plist-get upcoming :sections))
+                     '("Tomorrow"))))))
+
+(ert-deftest bloom-agenda-screen-is-deterministic-and-profile-valid ()
+  "The parity Agenda renders the same tree twice and carries its parts."
+  (let ((bloom-agenda--tab 'today) (bloom-agenda--levers-open t)
+        (bloom-agenda--overdue-open t))
+    (cl-letf (((symbol-function 'bloom-agenda-notes)
+               (lambda ()
+                 (list (bloom-test--agenda-note
+                        "Deck" :keyword "TODO" :priority "A"
+                        :scheduled (list :date (format-time-string "%F")))
+                       (bloom-test--agenda-note
+                        "Old" :keyword "TODO"
+                        :scheduled (list :date "2020-01-01"))))))
+      (let ((first (jetpacs-node->canonical-json
+                    (bloom-agenda-screen (jetpacs-view-switch "notebooks")))))
+        (should (string-search "bloom.agenda.overdue" first))
+        (should (string-search "Move to today" first))
+        (should (string-search "SCHEDULED TODAY" first))
+        (should (string-search "GROUP BY" first))
+        (should (string-search "bloom.agenda.toggle" first))
+        (should (equal first (jetpacs-node->canonical-json
+                              (bloom-agenda-screen
+                               (jetpacs-view-switch "notebooks")))))))))
 
 (ert-deftest bloom-edit-inline-tokens-follow-the-apps-claiming-order ()
   "Links and timestamps claim first; emphasis needs Org's boundaries."

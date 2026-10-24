@@ -548,7 +548,25 @@ The order is the app's `MONOGRAM_PALETTE_KEYS', which its name hash indexes.")
     ("read-priority" "plex-mono" 12 700 nil)
     ("read-count" "plex-mono" 12 400 nil)
     ("read-chip" "plex-mono" 12.5 400 nil)
-    ("read-fab" "plex-sans" 20 400 "on-primary"))
+    ("read-fab" "plex-sans" 20 400 "on-primary")
+    ("agenda-day" "plex-sans" 21 600 "on-background")
+    ("agenda-date" "plex-mono" 12.5 400 "muted")
+    ("agenda-levers" "plex-sans" 15 400 nil)
+    ("agenda-tab" "plex-sans" 12.5 600 nil)
+    ("agenda-lever-label" "plex-sans" 10.5 400 "faint" 0.74)
+    ("agenda-lever-chip" "plex-sans" 12 600 nil)
+    ("agenda-toggle" "plex-sans" 13 400 "on-background")
+    ("agenda-overdue-caret" "plex-sans" 12 400 "error")
+    ("agenda-overdue-count" "plex-sans" 13.5 600 "on-background")
+    ("agenda-move" "plex-sans" 11.5 600 "error")
+    ("agenda-group" "plex-sans" 11 700 "muted" 0.77)
+    ("agenda-group-count" "plex-mono" 11 400 "faint")
+    ("agenda-title" "plex-sans" 14 500 "on-background" 0 1.35 trimmed)
+    ("agenda-title-done" "plex-sans" 14 500 "faint" 0 1.35 trimmed)
+    ("agenda-state" "plex-mono" 9.5 700 nil 0.48)
+    ("agenda-meta" "plex-mono" 11.5 400 nil)
+    ("agenda-priority" "plex-mono" 10 700 nil)
+    ("agenda-empty-caption" "plex-sans" 12.5 400 "muted"))
   "The Android app's literal text roles, one face per distinct `Text' call.
 Each entry is name, family, size, weight, color, tracking, line height in
 em, and optionally `trimmed', and becomes style `bloom.t.NAME'.  A
@@ -560,7 +578,7 @@ Material's `bodyLarge', which Bloom sets to 1.65 em, while those that name a
 style (the screen title's `titleLarge') keep Plex's natural 1.3 em.")
 
 (defconst bloom-design-struck-roles
-  '("outline-title-done" "outline-title-sub-done")
+  '("outline-title-done" "outline-title-sub-done" "agenda-title-done")
   "Text roles the app strikes through: a finished heading's title.")
 
 (defun bloom-design--text-role-styles ()
@@ -628,7 +646,7 @@ pixels exactly as the app's does."
 
 (defconst bloom-design-ink-names
   '("success" "info" "warning" "error" "violet" "primary" "faint" "muted"
-    "syn-tag" "syn-keyword" "on-background")
+    "syn-tag" "syn-keyword" "on-background" "syn-todo" "on-primary")
   "Colors a parity text may take on top of its role, as `bloom.fg.NAME'.")
 
 (defconst bloom-design-chip-names '("success" "info" "warning" "error" "violet")
@@ -711,6 +729,119 @@ pixels exactly as the app's does."
             ("height" . ,(jetpacs-design-dimension 54))
             ("corner_radius" . ,(jetpacs-design-dimension 18))
             ("background_color" . ,(bloom-design--token "color.primary"))))))))
+
+;;;; Agenda
+
+(defun bloom-design--box-style (properties)
+  "Return a style of PROPERTIES, an alist of (NAME KIND VALUE).
+KIND is `dp', `color' (a palette name), `bool' or `weight'."
+  (jetpacs-design-style
+   (mapcar (pcase-lambda (`(,name ,kind ,value))
+             (cons name
+                   (pcase kind
+                     ('dp (jetpacs-design-dimension value))
+                     ('color (bloom-design--token (concat "color." value)))
+                     ('bool (jetpacs-design-boolean (if value t :json-false))))))
+           properties)))
+
+(defun bloom-design--agenda-styles ()
+  "Return the Agenda's boxes: levers, tabs, panel, chips, card and rows."
+  (append
+   `(("bloom.agenda.levers"
+      . ,(bloom-design--box-style '(("width" dp 36) ("height" dp 36)
+                                    ("corner_radius" dp 11))))
+     ("bloom.agenda.levers-off"
+      . ,(bloom-design--box-style '(("background_color" color "surface-raised"))))
+     ("bloom.agenda.levers-on"
+      . ,(bloom-design--box-style '(("background_color" color "accent-soft"))))
+     ("bloom.agenda.tabs"
+      . ,(bloom-design--box-style '(("corner_radius" dp 11)
+                                    ("background_color" color "surface-raised")
+                                    ("padding" dp 3) ("fill_width" bool t))))
+     ("bloom.agenda.tab"
+      . ,(bloom-design--box-style '(("corner_radius" dp 8) ("fill_width" bool t)
+                                    ("padding_horizontal" dp 4)
+                                    ;; 7 dp, plus the app's whole-pixel line box.
+                                    ("padding_vertical" dp 7.2))))
+     ("bloom.agenda.tab-on"
+      . ,(bloom-design--box-style '(("background_color" color "surface-sunken"))))
+     ("bloom.agenda.tab-off"
+      . ,(bloom-design--box-style '(("background_color" color "surface-raised"))))
+     ("bloom.agenda.panel"
+      . ,(bloom-design--box-style '(("corner_radius" dp 15) ("fill_width" bool t)
+                                    ("background_color" color "surface")
+                                    ("border_width" dp 1) ("border_color" color "line")
+                                    ;; The receiver insets content by the border;
+                                    ;; the app's border takes no room.
+                                    ("padding_start" dp 12) ("padding_top" dp 11)
+                                    ("padding_end" dp 12) ("padding_bottom" dp 12))))
+     ("bloom.agenda.chip"
+      . ,(bloom-design--box-style '(("corner_radius" dp 9) ("border_width" dp 1)
+                                    ("padding_horizontal" dp 11)
+                                    ("padding_vertical" dp 6))))
+     ("bloom.agenda.chip-off"
+      . ,(bloom-design--box-style '(("border_color" color "line")
+                                    ("background_color" color "surface"))))
+     ("bloom.agenda.chip-on"
+      . ,(bloom-design--box-style '(("border_color" color "primary")
+                                    ("background_color" color "primary"))))
+     ("bloom.agenda.track"
+      . ,(bloom-design--box-style '(("width" dp 36) ("height" dp 21)
+                                    ("corner_radius" dp 11))))
+     ("bloom.agenda.track-on"
+      . ,(bloom-design--box-style '(("background_color" color "primary"))))
+     ("bloom.agenda.track-off"
+      . ,(bloom-design--box-style '(("background_color" color "surface-sunken"))))
+     ("bloom.agenda.knob"
+      . ,(bloom-design--box-style '(("width" dp 16) ("height" dp 16)
+                                    ("corner_radius" dp 8)
+                                    ("background_color" color "surface"))))
+     ("bloom.agenda.overdue"
+      . ,(bloom-design--box-style '(("corner_radius" dp 15) ("fill_width" bool t)
+                                    ("background_color" color "error-soft")
+                                    ("border_width" dp 1) ("border_color" color "error")
+                                    ("padding_start" dp 11) ("padding_top" dp 10)
+                                    ("padding_end" dp 11) ("padding_bottom" dp 11))))
+     ("bloom.agenda.move"
+      . ,(bloom-design--box-style '(("corner_radius" dp 9)
+                                    ("background_color" color "surface")
+                                    ("padding_horizontal" dp 10)
+                                    ("padding_vertical" dp 6))))
+     ("bloom.agenda.hairline"
+      . ,(bloom-design--box-style '(("height" dp 1) ("fill_width" bool t)
+                                    ("background_color" color "line"))))
+     ("bloom.agenda.dot"
+      . ,(bloom-design--box-style '(("width" dp 7) ("height" dp 7)
+                                    ("corner_radius" dp 3.5)
+                                    ("background_color" color "violet"))))
+     ("bloom.agenda.check"
+      . ,(bloom-design--box-style '(("width" dp 20) ("height" dp 20)
+                                    ("corner_radius" dp 10) ("border_width" dp 1.5))))
+     ("bloom.agenda.priority"
+      . ,(bloom-design--box-style '(("width" dp 17) ("height" dp 17)
+                                    ("corner_radius" dp 5)
+                                    ("background_color" color "surface-raised"))))
+     ("bloom.agenda.row"
+      . ,(bloom-design--box-style '(("corner_radius" dp 12) ("fill_width" bool t)
+                                    ("background_color" color "background")
+                                    ("border_width" dp 0)
+                                    ("border_color" color "background")
+                                    ("padding" dp 0)))))
+   (mapcar (lambda (ink)
+             (cons (concat "bloom.agenda.check-" ink)
+                   (bloom-design--box-style
+                    (append `(("border_color" color ,ink))
+                            (if (equal ink "success")
+                                '(("background_color" color "success"))
+                              '(("background_color" color "background")))))))
+           '("success" "error" "warning" "info" "faint" "outline"))
+   (mapcar (pcase-lambda (`(,name . ,fill))
+             (cons (concat "bloom.agenda.state-" name)
+                   (bloom-design--box-style
+                    `(("corner_radius" dp 4) ("background_color" color ,fill)
+                      ("padding_horizontal" dp 5) ("padding_vertical" dp 2)))))
+           '(("warning" . "warning-soft") ("success" . "success-soft")
+             ("raised" . "surface-raised")))))
 
 ;;;; Edit mode
 
@@ -811,6 +942,7 @@ tokens; nil turns a role default off.")
    (bloom-design--text-role-styles)
    (bloom-design--read-styles)
    (bloom-design--edit-styles)
+   (bloom-design--agenda-styles)
    (bloom-design--monogram-styles)
    (bloom-design--ink-styles)
    (bloom-design--chip-styles)

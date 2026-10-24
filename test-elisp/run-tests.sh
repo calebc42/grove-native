@@ -47,6 +47,7 @@ emacs -Q --batch \
   "$bloom_root/elisp/bloom-read.el" \
   "$bloom_root/elisp/bloom-edit.el" \
   "$bloom_root/elisp/bloom-document.el" \
+  "$bloom_root/elisp/bloom-agenda.el" \
   "$bloom_root/elisp/bloom-reminders.el" \
   "$bloom_root/elisp/bloom-structure.el" \
   "$bloom_root/elisp/bloom-views.el" \
@@ -54,4 +55,4 @@ emacs -Q --batch \
   "$bloom_root/elisp/bloom-widgets.el" \
   "$bloom_root/elisp/bloom.el"
 
-test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 14
+test "$(find "$compile_output" -maxdepth 1 -name '*.elc' | wc -l)" -eq 15

@@ -593,6 +593,24 @@ makes the second end in an ellipsis."
     (let ((text (string-trim (string-join (nreverse lines) "\n"))))
       (unless (string-empty-p text) text))))
 
+(defconst bloom-library--active-timestamp-re
+  "<[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}[^>\n]*>\\(?:--<[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}[^>\n]*>\\)?"
+  "An active Org timestamp, with an optional `--' range end.")
+
+(defun bloom-library--active-timestamps (body)
+  "Return the bare active timestamps in heading BODY, in order.
+Planning lines do not count: their stamps are the heading's plan, and
+the app treats only the other active stamps as agenda events."
+  (let (stamps)
+    (dolist (line (split-string (or body "") "\n"))
+      (unless (string-match-p
+               "\\`[ \t]*\\(?:SCHEDULED\\|DEADLINE\\|CLOSED\\):" line)
+        (let ((start 0))
+          (while (string-match bloom-library--active-timestamp-re line start)
+            (push (match-string 0 line) stamps)
+            (setq start (match-end 0))))))
+    (nreverse stamps)))
+
 (defun bloom-library--scan-outline (notebook-id)
   "Scan NOTEBOOK-ID and return a safe nested-outline snapshot."
   (let ((file (or (bloom-library-resolve-notebook notebook-id)
@@ -636,6 +654,11 @@ makes the second end in an ellipsis."
                            :deadline-label
                            (bloom-library-human-timestamp
                             (plist-get record :deadline) now)
+                           :scheduled
+                           (ignore-errors
+                             (org-entry-get (plist-get record :pos) "SCHEDULED"))
+                           :active (bloom-library--active-timestamps
+                                    (plist-get record :body))
                            :scheduled-label
                            (bloom-library-human-timestamp
                             (ignore-errors
@@ -658,6 +681,9 @@ makes the second end in an ellipsis."
                                  :label)
                :preface (truncate-string-to-width preface 8192 nil nil t)
                :keywords (bloom-library--preface-keywords preface)
+               :todo-keywords (copy-sequence org-todo-keywords-1)
+               :done-keywords (copy-sequence org-done-keywords)
+               :file-tags (copy-sequence org-file-tags)
                :intro (bloom-library--preface-intro preface)
                :records (nreverse records)
                :buffer name
