@@ -1778,9 +1778,18 @@ checks, run from the foundation's applet tooling."
              (json (jetpacs-node->canonical-json screen)))
         (should (string-search "1 result " json))
         (should (string-search " 1 notebook" json))
-        (should (string-search "Finish Q3 roadmap deck" json))
+        ;; The query word is its own highlighted span inside the title.
+        (should (string-search "\"text\":\"Finish Q3 \"" json))
+        (should (string-search "\"text\":\"roadmap\"" json))
+        (should (string-search "rich_text" json))
         (should (string-search "[#A]" json))
         (should (jetpacs-check-profile screen 'app))))))
+
+(ert-deftest bloom-screen-scopes-stay-within-the-receivers-style-cap ()
+  "Profile styles plus a screen's own stay at or under 256 in effect."
+  (let ((profile (length (plist-get (bloom-design-light-profile) :styles))))
+    (should (<= (+ profile (length (bloom-design-agenda-styles))) 256))
+    (should (<= (+ profile (length (bloom-design-search-styles)) 2) 256))))
 
 (ert-deftest bloom-edit-inline-tokens-follow-the-apps-claiming-order ()
   "Links and timestamps claim first; emphasis needs Org's boundaries."

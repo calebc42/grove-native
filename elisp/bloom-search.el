@@ -35,6 +35,8 @@
 (require 'bloom-views)
 (require 'bloom-agenda)
 
+(defvar bloom-navigation--line-rounding)
+
 (declare-function bloom-document-open-action "bloom-document" (notebook-id heading-id))
 (declare-function jetpacs-app-defer-refresh "jetpacs-apps" (&optional params))
 
@@ -148,7 +150,9 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
                 (list (car group)
                       (or (plist-get notebook :file-label)
                           (plist-get (cadr group) :notebook-label) "")
-                      (plist-get notebook :folder-label)
+                      ;; A notebook at the Org root has no folder to name.
+                      (and (plist-get notebook :folder-id)
+                           (plist-get notebook :folder-label))
                       (cdr group))))
             (nreverse groups))))
 
@@ -182,7 +186,6 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
           (jetpacs-with-attrs
            (jetpacs-text-input
             "bloom-search-query" :value query :single-line t :max-length 512
-            :hint "Search notes"
             :hide-keyboard-on-submit t
             :on-submit (jetpacs-action "bloom.search.query"))
            :weight 1)
@@ -203,7 +206,10 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
              :width 44 :height 44)
             :name "Save search"))
       :align "center" :fill t)))
-   :pad '(:horizontal 10 :vertical 6)))
+   ;; The app's row is 6 dp around a 44 dp glyph box; the receiver's back
+   ;; button is 48 dp, so 4 dp around it keeps the row 56 dp tall, and a
+   ;; 6 dp start keeps the field where the app's begins.
+   :pad '(:start 6 :end 10 :vertical 4)))
 
 (defun bloom-search--meta-row (snapshot results groups)
   "Return the result count over SNAPSHOT's RESULTS and GROUPS, and Advanced."
@@ -309,7 +315,9 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
         (bloom-search--text "search-saved-query" nil
                             (or (plist-get view :query)
                                 (format "Emacs agenda view · %s" (plist-get view :kind)))
-                            :pad '(:top 2)))
+                            ;; The app's two line boxes each round up to
+                            ;; whole pixels: 0.4 dp more per row.
+                            :pad (list :top 2 :bottom bloom-navigation--line-rounding)))
        :weight 1)
       :align "top" :fill t)
      :on-tap (bloom-views-run-action view)))))
@@ -336,6 +344,44 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
        (list (jetpacs-spacer :height 16) :fill t)))
      :pad '(:horizontal 14 :vertical 4))))
 
+(defun bloom-search--terms (snapshot)
+  "Return the words SNAPSHOT's text query looks for, for highlighting.
+Only a text search has plain words; Org match and org-ql queries name
+fields instead."
+  (when (equal (plist-get snapshot :mode) "text")
+    (seq-remove (lambda (word)
+                  (or (member (upcase word) '("AND" "OR" "NOT"))
+                      (string-match-p "\\`[{+-]" word)))
+                (split-string (or (plist-get snapshot :query) "") "[ \t\"]+" t))))
+
+(defun bloom-search--highlighted (role text terms)
+  "Return TEXT in text ROLE with every occurrence of TERMS highlighted.
+A match reads amber and semibold on the soft amber fill, as in the app."
+  (let ((case-fold-search t) ranges)
+    (dolist (term terms)
+      (let ((start 0))
+        (while (string-match (regexp-quote term) text start)
+          (push (cons (match-beginning 0) (match-end 0)) ranges)
+          (setq start (match-end 0)))))
+    (if (null ranges)
+        (bloom-search--text role nil text)
+      (setq ranges (sort ranges (lambda (a b) (< (car a) (car b)))))
+      (let ((pos 0) spans)
+        (dolist (range ranges)
+          (when (>= (car range) pos)
+            (when (> (car range) pos)
+              (push (jetpacs-span (substring text pos (car range))) spans))
+            (push (jetpacs-span (substring text (car range) (cdr range))
+                                :color (bloom-design-color "warning")
+                                :bg (bloom-design-opaque-color "warning-soft")
+                                :font-weight 600)
+                  spans)
+            (setq pos (cdr range))))
+        (when (< pos (length text))
+          (push (jetpacs-span (substring text pos)) spans))
+        (jetpacs-design-styled (list (concat "bloom.t." role))
+                               (list (jetpacs-rich-text (nreverse spans))))))))
+
 (defun bloom-search--date-pill (label overdue kind)
   "Return a date pill showing LABEL for planning KIND, red when OVERDUE."
   (let ((tone (cond (overdue "error") ((eq kind 'deadline) "warning") (t "info"))))
@@ -347,8 +393,9 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
             (bloom-search--text "search-date" tone label)
             :spacing 3 :align "center")))))
 
-(defun bloom-search--row (row today)
-  "Return result ROW's tappable heading row seen from TODAY."
+(defun bloom-search--row (row today &optional terms)
+  "Return result ROW's tappable heading row seen from TODAY.
+TERMS are the query words to highlight in the title."
   (let* ((record (plist-get row :record))
          (done (plist-get record :done))
          (keyword (plist-get row :todo))
@@ -394,9 +441,10 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
                                (pcase priority ("A" "error") ("B" "warning") (_ "success"))
                                (format "[#%s]" priority) :pad '(:end 7)))
                          (jetpacs-with-attrs
-                          (bloom-search--text
-                           (if done "search-title-done" "search-title") nil
-                           (or (plist-get record :title) (plist-get row :headline)))
+                          (bloom-search--highlighted
+                           (if done "search-title-done" "search-title")
+                           (or (plist-get record :title) (plist-get row :headline))
+                           terms)
                           :weight 1)))
                   (list :align "center" :fill t)))
           (and meta
@@ -434,8 +482,9 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
             :commit t)))
      :key (jetpacs-wire-id "search-row" (plist-get row :heading-id)))))
 
-(defun bloom-search--group (group today)
-  "Return GROUP's header and, unless folded, its rows seen from TODAY."
+(defun bloom-search--group (group today &optional terms)
+  "Return GROUP's header and, unless folded, its rows seen from TODAY.
+TERMS are the query words to highlight."
   (pcase-let ((`(,id ,label ,folder ,rows) group))
     (let ((folded (member id bloom-search--collapsed))
           (count (length rows)))
@@ -469,7 +518,7 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
                   when (> index 0)
                   collect (jetpacs-design-styled '("bloom.agenda.hairline")
                                                  (list (jetpacs-spacer :height 1)))
-                  collect (bloom-search--row row today)))))))
+                  collect (bloom-search--row row today terms)))))))
 
 (defun bloom-search--nothing (snapshot)
   "Return the no-results state for SNAPSHOT."
@@ -524,7 +573,13 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
      (jetpacs-design-active-profile bloom-design-profile-id)
      (list
       (bloom-design-screen-scope
-       (append (bloom-design-agenda-styles) (bloom-design-search-styles))
+       ;; Only the styles this screen uses: the receiver caps the styles in
+       ;; effect, the profile's included, at 256.
+       (append (bloom-design-search-styles)
+               (seq-filter (lambda (style)
+                             (member (car style) '("bloom.agenda.hairline"
+                                                   "bloom.agenda.row")))
+                           (bloom-design-agenda-styles)))
        (list
       (jetpacs-with-semantics
        (append
@@ -550,20 +605,28 @@ Each group is (NOTEBOOK-ID LABEL FOLDER ROWS); rows keep result order."
          (jetpacs-design-scope
           nil nil
           (list
-           (cond
-            ((bloom-search--blank-p snapshot)
-             (jetpacs-lazy-column (bloom-search--blank)))
-            ((null groups)
-             (jetpacs-lazy-column (bloom-search--nothing snapshot)))
-            (t
-             (jetpacs-with-attrs
-              (apply #'jetpacs-lazy-column
-                     (cl-mapcan (lambda (group) (bloom-search--group group today))
-                                groups))
-              :pad '(:horizontal 12 :vertical 4)))))
+           ;; The Filters bar ends the body rather than taking the scaffold's
+           ;; bottom bar, which the receiver wraps in its own padded band.
+           (jetpacs-column
+            (jetpacs-with-attrs
+             (cond
+              ((bloom-search--blank-p snapshot)
+               (jetpacs-lazy-column (bloom-search--blank)))
+              ((null groups)
+               (jetpacs-lazy-column (bloom-search--nothing snapshot)))
+              (t
+               (jetpacs-with-attrs
+                (apply #'jetpacs-lazy-column
+                       (let ((terms (bloom-search--terms snapshot)))
+                         (cl-mapcan (lambda (group)
+                                      (bloom-search--group group today terms))
+                                    groups)))
+                :pad '(:horizontal 12 :vertical 4))))
+             :weight 1)
+            (bloom-search--filters-bar)
+            :fill t))
           :component-styles
-          (list (jetpacs-design-component-style "card.filled" '("bloom.agenda.row"))))
-         :bottom-bar (bloom-search--filters-bar))
+          (list (jetpacs-design-component-style "card.filled" '("bloom.agenda.row")))))
         (list :fab nil))
        :pane-title "Search")))))))
 

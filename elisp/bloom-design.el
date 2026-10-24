@@ -871,8 +871,10 @@ KIND is `dp', `color' (a palette name), `bool' or `weight'."
 (defun bloom-design-screen-scope (styles children)
   "Return a design scope declaring screen STYLES around CHILDREN.
 A profile holds at most 256 styles, so styles used by one screen live in
-a scope on that screen.  The scope re-declares the active profile's color
-tokens, which its styles name, so every preset still colors them."
+a scope on that screen.  The receiver also caps the styles in effect, the
+profile's and the scope's together, at 256, so STYLES must stay small.
+The scope re-declares the active profile's color tokens, which its
+styles name, so every preset still colors them."
   (let ((profile (jetpacs-design-active-profile bloom-design-profile-id)))
     (jetpacs-design-scope
      (seq-filter (lambda (token) (string-prefix-p "color." (car token)))
@@ -898,11 +900,14 @@ A bordered box pads one dp less than the app, which the receiver insets."
                                     ("background_color" color "surface")
                                     ("border_width" dp 1) ("border_color" color "line")
                                     ("padding_horizontal" dp 11) ("fill_width" bool t))))
-     ;; The text input sits bare inside the field box.
+     ;; The text input sits bare inside the field box.  The receiver's
+     ;; field is at least 48 dp tall with its text at the top, centred over
+     ;; the 42 dp box; 10 dp above the text puts it on the box's centre.
      ("bloom.search.input"
       . ,(bloom-design--box-style '(("background_color" color "surface")
                                     ("border_width" dp 0) ("border_color" color "surface")
-                                    ("padding" dp 0) ("fill_width" bool t))))
+                                    ("padding" dp 0) ("padding_top" dp 10)
+                                    ("fill_width" bool t))))
      ("bloom.search.advanced"
       . ,(bloom-design--box-style '(("corner_radius" dp 8) ("padding_horizontal" dp 10)
                                     ("padding_vertical" dp 5))))
@@ -1155,6 +1160,25 @@ Falls back to the `outline' role when NAME is not a color token."
       ("color" (plist-get value :value))
       ("theme-role" (plist-get value :value))
       (_ "outline"))))
+
+(defun bloom-design-opaque-color (name)
+  "Return the active profile's color NAME made opaque over the background.
+A soft fill such as `warning-soft' carries alpha as `#AARRGGBB'.  Places
+that read colors differently, such as rich-text spans, get the same tint
+as an opaque `#RRGGBB' instead.  A theme-role color comes back as is."
+  (let ((fill (bloom-design-color name))
+        (under (bloom-design-color "background")))
+    (if (and (string-match-p "\\`#[[:xdigit:]]\\{8\\}\\'" fill)
+             (string-match-p "\\`#[[:xdigit:]]\\{6\\}\\'" under))
+        (let ((alpha (/ (string-to-number (substring fill 1 3) 16) 255.0)))
+          (apply #'format "#%02X%02X%02X"
+                 (cl-loop for i from 0 below 3
+                          collect (round
+                                   (+ (* alpha (string-to-number
+                                                (substring fill (+ 3 (* 2 i)) (+ 5 (* 2 i))) 16))
+                                      (* (- 1 alpha) (string-to-number
+                                                      (substring under (+ 1 (* 2 i)) (+ 3 (* 2 i))) 16)))))))
+      fill)))
 
 (defun bloom-design-parity-available-p (&optional profile)
   "Return non-nil when PROFILE declares Bloom's exact parity faces.
