@@ -1749,11 +1749,17 @@ checks, run from the foundation's applet tooling."
 (ert-deftest bloom-search-quick-cards-are-org-matches-with-the-apps-counts ()
   "On the parity vault the four cards count as the Android app does."
   (let* ((vault (expand-file-name "../fixtures/parity-vault" bloom-test--root))
-         (org-agenda-files (list vault (expand-file-name "projects" vault))))
+         (org-agenda-files (list vault (expand-file-name "projects" vault)))
+         (noon (encode-time 0 0 12 23 10 2026))
+         (decode (symbol-function 'decode-time)))
+    ;; Org's matcher reads today through `decode-time' with no argument,
+    ;; which a `current-time' stub does not reach.
     (cl-letf (((symbol-function 'bloom-search--done-regexp)
                (lambda () "^\\(DONE\\)$"))
-              ((symbol-function 'current-time)
-               (lambda () (encode-time 0 0 12 23 10 2026))))
+              ((symbol-function 'current-time) (lambda () noon))
+              ((symbol-function 'decode-time)
+               (lambda (&optional time zone form)
+                 (funcall decode (or time noon) zone form))))
       (dolist (card (bloom-search-quick-cards))
         (should (equal (bloom-search-mode-for (plist-get card :query)) "match"))
         (let ((hits (org-map-entries (lambda () t) (plist-get card :query) 'agenda)))
