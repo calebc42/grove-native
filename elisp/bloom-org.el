@@ -23,6 +23,7 @@
 (require 'subr-x)
 (require 'calendar)
 (require 'ebp-org)
+(require 'jetpacs-dates)
 (require 'jetpacs-org-reminders)
 (require 'jetpacs-widgets)
 (require 'bloom-core)
@@ -45,15 +46,6 @@ headlines, paths, and Org references never enter planning screen state."
   :type '(integer 1 2048)
   :group 'bloom)
 
-(defconst bloom-org--weekdays
-  ["Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday"]
-  "Locale-independent weekday labels used by Bloom's visual language.")
-
-(defconst bloom-org--months
-  ["January" "February" "March" "April" "May" "June"
-   "July" "August" "September" "October" "November" "December"]
-  "Locale-independent month labels used by Bloom's visual language.")
-
 (defvar bloom-org-after-refresh-hook nil
   "Hook run after Bloom replaces or marks its explicit agenda snapshot.")
 
@@ -69,54 +61,23 @@ headlines, paths, and Org references never enter planning screen state."
   "Return a defensive copy of Bloom's current agenda snapshot."
   (copy-tree bloom-org--snapshot))
 
-(defun bloom-org--date-parts (date)
-  "Return Gregorian (MONTH DAY YEAR) for ISO DATE, or nil."
-  (when (and (stringp date)
-             (string-match
-              "\\`\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)\\'"
-              date))
-    (list (string-to-number (match-string 2 date))
-          (string-to-number (match-string 3 date))
-          (string-to-number (match-string 1 date)))))
-
-(defun bloom-org-date-valid-p (date)
-  "Return non-nil when DATE is a real ISO Gregorian calendar date."
-  (when-let* ((parts (bloom-org--date-parts date)))
-    (calendar-date-is-valid-p parts)))
-
 (defun bloom-org-month-valid-p (month)
   "Return non-nil when MONTH has the canonical YYYY-MM form."
   (and (stringp month)
        (string-match-p
         "\\`[0-9]\\{4\\}-\\(?:0[1-9]\\|1[0-2]\\)\\'" month)))
 
-(defun bloom-org--date-delta (date today)
-  "Return DATE's signed day offset from TODAY, or nil.
-DATE and TODAY are ISO calendar dates."
-  (when-let* (((bloom-org-date-valid-p date))
-              ((bloom-org-date-valid-p today))
-              (date-parts (bloom-org--date-parts date))
-              (today-parts (bloom-org--date-parts today)))
-    (- (calendar-absolute-from-gregorian date-parts)
-       (calendar-absolute-from-gregorian today-parts))))
-
 (defun bloom-org-date-shift (date days)
   "Return ISO DATE shifted by integer DAYS, or nil for invalid input."
-  (when (and (bloom-org-date-valid-p date) (integerp days))
-    (pcase-let* ((absolute
-                  (+ (calendar-absolute-from-gregorian
-                      (bloom-org--date-parts date))
-                     days))
-                 (`(,month ,day ,year)
-                  (calendar-gregorian-from-absolute absolute)))
-      (format "%04d-%02d-%02d" year month day))))
+  (and (jetpacs-dates-valid-p date) (integerp days)
+       (jetpacs-dates-shift date days 'day)))
 
 (defun bloom-org--agenda-item-date (item)
   "Return ITEM's canonical ISO occurrence date, or nil."
   (let ((date (alist-get 'date item))
         (absolute (alist-get 'ts-date item)))
     (cond
-     ((bloom-org-date-valid-p date) date)
+     ((jetpacs-dates-valid-p date) date)
      ((numberp absolute)
       (pcase-let ((`(,month ,day ,year)
                     (calendar-gregorian-from-absolute absolute)))
@@ -143,7 +104,7 @@ the Org agenda read; planning builders only consume its explicit result."
 
 (defun bloom-org--section-label (date today type)
   "Return Bloom's ledger section for agenda DATE, TODAY, and TYPE."
-  (let ((delta (bloom-org--date-delta date today)))
+  (let ((delta (jetpacs-dates-delta date today)))
     (cond
      ((or (and (stringp type) (string-match-p "past" type))
           (and delta (< delta 0)))
@@ -151,9 +112,7 @@ the Org agenda read; planning builders only consume its explicit result."
      ((equal delta 0) "TODAY")
      ((equal delta 1) "TOMORROW")
      ((and delta (> delta 1))
-      (upcase
-       (aref bloom-org--weekdays
-             (calendar-day-of-week (bloom-org--date-parts date)))))
+      (upcase (jetpacs-dates-weekday date)))
      (t "AGENDA"))))
 
 (defun bloom-org--item-id (ref)
@@ -220,13 +179,11 @@ coincide.  Bloom renders one row and lets Org keep the underlying semantics."
 (defun bloom-org--today-metadata (now)
   "Return Bloom day/date/update labels for Emacs time value NOW."
   (let* ((today (format-time-string "%Y-%m-%d" now))
-         (parts (bloom-org--date-parts today))
-         (month (nth 0 parts))
-         (day (nth 1 parts)))
+         (parts (jetpacs-dates-parts today)))
     (list :today today
-          :day-label
-          (aref bloom-org--weekdays (calendar-day-of-week parts))
-          :date-label (format "%s %d" (aref bloom-org--months (1- month)) day)
+          :day-label (jetpacs-dates-weekday today)
+          :date-label (format "%s %d" (jetpacs-dates-month-name (nth 0 parts))
+                              (nth 1 parts))
           :updated-label (format-time-string "Updated %H:%M" now))))
 
 (defun bloom-org-refresh (&optional now)

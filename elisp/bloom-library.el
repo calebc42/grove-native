@@ -634,6 +634,9 @@ the app treats only the other active stamps as agenda events."
            (let* ((ref (ebp-org-ref-at-point))
                   (heading-id (bloom-library--heading-id ref))
                   (level (plist-get record :level))
+                  (scheduled (ignore-errors
+                               (org-entry-get (plist-get record :pos)
+                                              "SCHEDULED")))
                   (revision
                    (secure-hash
                     'sha256 (current-buffer) (point)
@@ -651,17 +654,11 @@ the app treats only the other active stamps as agenda events."
                            :deadline-label
                            (bloom-library-human-timestamp
                             (plist-get record :deadline) now)
-                           :scheduled
-                           (ignore-errors
-                             (org-entry-get (plist-get record :pos) "SCHEDULED"))
+                           :scheduled scheduled
                            :active (bloom-library--active-timestamps
                                     (plist-get record :body))
                            :scheduled-label
-                           (bloom-library-human-timestamp
-                            (ignore-errors
-                              (org-entry-get (plist-get record :pos)
-                                             "SCHEDULED"))
-                            now)
+                           (bloom-library-human-timestamp scheduled now)
                            :lines (bloom-library--preview-lines
                                    (plist-get record :body))
                            :done (plist-get record :done)

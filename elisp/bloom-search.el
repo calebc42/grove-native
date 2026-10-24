@@ -27,6 +27,7 @@
 
 (require 'cl-lib)
 (require 'subr-x)
+(require 'jetpacs-dates)
 (require 'jetpacs-widgets)
 (require 'jetpacs-design)
 (require 'bloom-core)
@@ -117,7 +118,7 @@ tags/property/TODO syntax, and \"text\" for everything else."
   "Return STAMP's pill label seen from TODAY and whether it is overdue."
   (when stamp
     (let* ((date (plist-get stamp :date))
-           (delta (bloom-org--date-delta date today))
+           (delta (jetpacs-dates-delta date today))
            (clock (if (plist-get stamp :time)
                       (concat " " (plist-get stamp :time)
                               (if (plist-get stamp :end)
@@ -127,10 +128,9 @@ tags/property/TODO syntax, and \"text\" for everything else."
        ((< delta 0) (cons (format "%dd overdue" (- delta)) t))
        ((= delta 0) (cons (concat "today" clock) nil))
        ((= delta 1) (cons (concat "tomorrow" clock) nil))
-       (t (cons (concat (substring (bloom-agenda--weekday date) 0 3) " "
-                        (number-to-string (nth 1 (bloom-org--date-parts date))) " "
-                        (substring (bloom-agenda--short-date date) 0 3)
-                        clock)
+       (t (cons (pcase-let ((`(,month ,day ,_) (jetpacs-dates-parts date)))
+                  (format "%s %d %s%s" (jetpacs-dates-weekday date t) day
+                          (jetpacs-dates-month-abbrev month) clock))
                 nil))))))
 
 (defun bloom-search--groups (results records)
@@ -400,8 +400,8 @@ TERMS are the query words to highlight in the title."
          (done (plist-get record :done))
          (keyword (plist-get row :todo))
          (priority (plist-get row :priority))
-         (scheduled (bloom-agenda-parse-timestamp (plist-get record :scheduled)))
-         (deadline (bloom-agenda-parse-timestamp (plist-get record :deadline)))
+         (scheduled (ebp-org-ts-parse (plist-get record :scheduled)))
+         (deadline (ebp-org-ts-parse (plist-get record :deadline)))
          (tags (plist-get row :tags))
          (pills (unless done
                   (delq nil

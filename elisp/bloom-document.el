@@ -571,7 +571,7 @@ signal propagates."
 (defun bloom-document--planning-date (stamp)
   "Return STAMP's real ISO calendar date, or nil."
   (when-let* ((date (ebp-org-ts-date stamp))
-              ((bloom-org-date-valid-p date)))
+              ((jetpacs-dates-valid-p date)))
     date))
 
 (defun bloom-document--planning-time-valid-p (time)
@@ -590,7 +590,7 @@ SCHEDULED or DEADLINE wins according to FOCUS, followed by the other field."
         (other (if (equal focus "deadline") scheduled deadline)))
     (substring (or (bloom-document--planning-date preferred)
                    (bloom-document--planning-date other)
-                   (and (bloom-org-date-valid-p today) today)
+                   (and (jetpacs-dates-valid-p today) today)
                    "1970-01-01")
                0 7)))
 
@@ -747,7 +747,7 @@ their arguments therefore never carry."
      ((not (and (member field '("scheduled" "deadline"))
                 (member kind '("date" "time"))
                 (if (equal kind "date")
-                    (bloom-org-date-valid-p value)
+                    (jetpacs-dates-valid-p value)
                   (bloom-document--planning-time-valid-p value))))
       'rejected)
      ((jetpacs-event-stale-p params) 'stale)
@@ -955,8 +955,8 @@ Its label and its focus variant are bound to /planning/FIELD."
 
 (defun bloom-document--planning-preset-dates (today)
   "Return Bloom quick-pick label/date pairs relative to ISO TODAY."
-  (when (bloom-org-date-valid-p today)
-    (let* ((parts (bloom-org--date-parts today))
+  (when (jetpacs-dates-valid-p today)
+    (let* ((parts (jetpacs-dates-parts today))
            (weekday (calendar-day-of-week parts))
            (weekend-delta (mod (- 6 weekday) 7))
            (monday-delta (mod (- 1 weekday) 7)))
@@ -1007,7 +1007,7 @@ fallback so an older member profile still distinguishes the two targets."
   (let ((dots (make-hash-table :test #'equal))
         (colors (make-hash-table :test #'equal)))
     (dolist (mark counts)
-      (when (and (bloom-org-date-valid-p (car mark))
+      (when (and (jetpacs-dates-valid-p (car mark))
                  (integerp (cdr mark)))
         (puthash (car mark) (max 0 (min 3 (cdr mark))) dots)))
     (unless styled
@@ -1165,7 +1165,7 @@ children array holding a conditional node must be."
   "The /planning/feedback object for KIND over SCHEDULED-DATE and DEADLINE-DATE."
   (pcase kind
     ('lead-time
-     (let ((days (bloom-org--date-delta deadline-date scheduled-date)))
+     (let ((days (jetpacs-dates-delta deadline-date scheduled-date)))
        (append
         (list :icon (if (< days 0) "warning" "date_range")
               :icon_color (if (< days 0) "error" "primary")

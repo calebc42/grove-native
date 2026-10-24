@@ -1649,13 +1649,7 @@ checks, run from the foundation's applet tooling."
                 :active-keywords '("TODO"))))
 
 (ert-deftest bloom-agenda-timestamps-and-day-labels-follow-the-app ()
-  "Stamps keep time, range and repeater; days read as the app names them."
-  (should (equal (bloom-agenda-parse-timestamp "<2026-09-05 Sat 09:00-11:00 +1w>")
-                 '(:date "2026-09-05" :time "09:00" :end "11:00" :repeater "+1w"
-                   :range-end nil)))
-  (should (equal (plist-get (bloom-agenda-parse-timestamp "<2026-10-27 Tue 9:05>") :time)
-                 "09:05"))
-  (should-not (bloom-agenda-parse-timestamp "no stamp"))
+  "Days read as the app names them."
   (should (equal (bloom-agenda-day-label "2026-10-23" "2026-10-23") "Today"))
   (should (equal (bloom-agenda-day-label "2026-10-24" "2026-10-23") "Tomorrow"))
   (should (equal (bloom-agenda-day-label "2026-10-22" "2026-10-23") "Yesterday"))
@@ -1674,22 +1668,22 @@ checks, run from the foundation's applet tooling."
           (list
            (bloom-test--agenda-note
             "Deck" :keyword "TODO" :priority "A" :tags '("work" "planning")
-            :scheduled (bloom-agenda-parse-timestamp "<2026-10-23 Fri>"))
+            :scheduled (ebp-org-ts-parse "<2026-10-23 Fri>"))
            (bloom-test--agenda-note
-            "Vendor" :deadline (bloom-agenda-parse-timestamp "<2026-10-21 Wed>"))
+            "Vendor" :deadline (ebp-org-ts-parse "<2026-10-21 Wed>"))
            (bloom-test--agenda-note
             "Belcanto" :keyword "TODO"
-            :scheduled (bloom-agenda-parse-timestamp "<2026-09-05 Sat 09:00-11:00 +1w>")
-            :deadline (bloom-agenda-parse-timestamp "<2026-09-26 Sat>"))
+            :scheduled (ebp-org-ts-parse "<2026-09-05 Sat 09:00-11:00 +1w>")
+            :deadline (ebp-org-ts-parse "<2026-09-26 Sat>"))
            (bloom-test--agenda-note
             "Cabin" :keyword "TODO"
-            :scheduled (bloom-agenda-parse-timestamp "<2026-10-24 Sat>"))
+            :scheduled (ebp-org-ts-parse "<2026-10-24 Sat>"))
            (bloom-test--agenda-note
             "Far" :keyword "TODO"
-            :scheduled (bloom-agenda-parse-timestamp "<2026-12-24 Thu>"))
+            :scheduled (ebp-org-ts-parse "<2026-12-24 Thu>"))
            (bloom-test--agenda-note
             "Expenses" :keyword "DONE" :done t
-            :scheduled (bloom-agenda-parse-timestamp "<2026-10-23 Fri>"))))
+            :scheduled (ebp-org-ts-parse "<2026-10-23 Fri>"))))
          (state (bloom-agenda-state notes "2026-10-23")))
     (should (equal (plist-get state :day) "Friday"))
     (should (equal (plist-get state :date) "October 23"))

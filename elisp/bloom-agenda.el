@@ -20,10 +20,10 @@
 
 (require 'cl-lib)
 (require 'subr-x)
-(require 'calendar)
 (require 'org)
 (require 'ebp-org)
 (require 'jetpacs-widgets)
+(require 'jetpacs-dates)
 (require 'jetpacs-design)
 (require 'jetpacs-org-dialogs)
 (require 'jetpacs-org-save)
@@ -98,77 +98,33 @@
 
 ;;;; Timestamps and days
 
-(defun bloom-agenda-parse-timestamp (string)
-  "Return Org timestamp STRING as a plist, or nil.
-The plist has `:date' (ISO), `:time' and `:end' (HH:MM or nil),
-`:repeater' (as written, such as \"+1w\"), and `:range-end' (ISO, for a
-`<a>--<b>' range)."
-  (when (and (stringp string)
-             (string-match
-              "\\`[<[]\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\)\\([^]>]*\\)[]>]\\(?:--[<[]\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\)[^]>]*[]>]\\)?"
-              (string-trim string)))
-    (let ((date (match-string 1 (string-trim string)))
-          (rest (match-string 2 (string-trim string)))
-          (range-end (match-string 3 (string-trim string)))
-          time end repeater)
-      (dolist (token (split-string rest " " t))
-        (cond
-         ((string-match "\\`\\([0-9]\\{1,2\\}:[0-9]\\{2\\}\\)\\(?:-\\([0-9]\\{1,2\\}:[0-9]\\{2\\}\\)\\)?\\'" token)
-          (let ((start (match-string 1 token)) (stop (match-string 2 token)))
-            (setq time (bloom-agenda--clock start)
-                  end (and stop (bloom-agenda--clock stop)))))
-         ((string-match-p "\\`\\(?:\\.\\+\\|\\+\\+\\|\\+\\)[0-9]+[hdwmy]\\'" token)
-          (setq repeater token))))
-      (and (bloom-org-date-valid-p date)
-           (list :date date :time time :end end :repeater repeater
-                 :range-end (and (bloom-org-date-valid-p range-end) range-end))))))
-
-(defun bloom-agenda--clock (string)
-  "Return clock STRING zero-padded to HH:MM."
-  (if (string-match "\\`\\([0-9]\\{1,2\\}\\):\\([0-9]\\{2\\}\\)\\'" string)
-      (format "%02d:%s" (string-to-number (match-string 1 string))
-              (match-string 2 string))
-    string))
-
 (defun bloom-agenda--today ()
   "Return today's ISO date."
   (format-time-string "%F"))
 
-(defun bloom-agenda--weekday (date)
-  "Return ISO DATE's English weekday name."
-  (aref ["Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday"]
-        (calendar-day-of-week (bloom-org--date-parts date))))
-
 (defun bloom-agenda--short-date (date)
   "Return ISO DATE as the app's short form, such as \"Oct 21\"."
-  (pcase-let ((`(,month ,day ,_) (bloom-org--date-parts date)))
-    (format "%s %d" (aref ["Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug"
-                           "Sep" "Oct" "Nov" "Dec"]
-                          (1- month))
-            day)))
+  (pcase-let ((`(,month ,day ,_) (jetpacs-dates-parts date)))
+    (format "%s %d" (jetpacs-dates-month-abbrev month) day)))
 
 (defun bloom-agenda--long-date (date)
   "Return ISO DATE as the header's form, such as \"October 23\"."
-  (pcase-let ((`(,month ,day ,_) (bloom-org--date-parts date)))
-    (format "%s %d" (aref ["January" "February" "March" "April" "May" "June"
-                           "July" "August" "September" "October" "November"
-                           "December"]
-                          (1- month))
-            day)))
+  (pcase-let ((`(,month ,day ,_) (jetpacs-dates-parts date)))
+    (format "%s %d" (jetpacs-dates-month-name month) day)))
 
 (defun bloom-agenda-day-label (date today)
   "Return the app's label for ISO DATE seen from TODAY.
 Today, Tomorrow, Yesterday, the weekday within a week, and the weekday
 with its short date beyond."
-  (let ((delta (bloom-org--date-delta date today)))
+  (let ((delta (jetpacs-dates-delta date today)))
     (pcase delta
       (0 "Today")
       (1 "Tomorrow")
       (-1 "Yesterday")
       (_ (if (> (abs delta) 6)
-             (format "%s, %s" (bloom-agenda--weekday date)
+             (format "%s, %s" (jetpacs-dates-weekday date)
                      (bloom-agenda--short-date date))
-           (bloom-agenda--weekday date))))))
+           (jetpacs-dates-weekday date))))))
 
 ;;;; Notes
 
@@ -187,9 +143,9 @@ with its short date beyond."
     (dolist (record records)
       (puthash (plist-get record :id) record by-id))
     (dolist (record records)
-      (let ((scheduled (bloom-agenda-parse-timestamp (plist-get record :scheduled)))
-            (deadline (bloom-agenda-parse-timestamp (plist-get record :deadline)))
-            (active (delq nil (mapcar #'bloom-agenda-parse-timestamp
+      (let ((scheduled (ebp-org-ts-parse (plist-get record :scheduled)))
+            (deadline (ebp-org-ts-parse (plist-get record :deadline)))
+            (active (delq nil (mapcar #'ebp-org-ts-parse
                                       (plist-get record :active)))))
         (when (or scheduled deadline active)
           (let ((tags (copy-sequence (plist-get record :tags)))
@@ -261,7 +217,7 @@ with its short date beyond."
   "Return NOTES planned before TODAY, oldest first, then priority and title."
   (sort (seq-filter (lambda (note)
                       (let ((date (bloom-agenda--when-date note)))
-                        (and date (< (bloom-org--date-delta date today) 0))))
+                        (and date (< (jetpacs-dates-delta date today) 0))))
                     notes)
         (lambda (a b)
           (let ((da (bloom-agenda--when-date a)) (db (bloom-agenda--when-date b)))
@@ -277,8 +233,8 @@ with its short date beyond."
   "Return (NOTE . STAMP) for each bare active stamp of NOTES covering DAY."
   (cl-loop for note in notes
            nconc (cl-loop for stamp in (plist-get note :active)
-                          when (and (<= (bloom-org--date-delta (plist-get stamp :date) day) 0)
-                                    (>= (bloom-org--date-delta
+                          when (and (<= (jetpacs-dates-delta (plist-get stamp :date) day) 0)
+                                    (>= (jetpacs-dates-delta
                                          (or (plist-get stamp :range-end)
                                              (plist-get stamp :date))
                                          day)
@@ -325,7 +281,7 @@ timestamp, shown under EVENT-DAY's section when that is non-nil."
                (deadline (plist-get note :deadline))
                (anchor (or scheduled deadline))
                (date (plist-get anchor :date))
-               (late (and date (- (bloom-org--date-delta date today))))
+               (late (and date (- (jetpacs-dates-delta date today))))
                (overdue (and late (> late 0)))
                (deadline-only (and deadline (not scheduled))))
           (cond
@@ -631,13 +587,13 @@ NOTES default to `bloom-agenda-notes' and TODAY to the current date."
          (horizon (bloom-org-date-shift today (1- bloom-agenda-window-days)))
          (future (seq-filter (lambda (note)
                                (let ((date (bloom-agenda--when-date note)))
-                                 (and date (> (bloom-org--date-delta date today) 0)
-                                      (<= (bloom-org--date-delta date horizon) 0))))
+                                 (and date (> (jetpacs-dates-delta date today) 0)
+                                      (<= (jetpacs-dates-delta date horizon) 0))))
                              visible))
          (list (if today-tab on-today future))
          (show-date (and (not (equal grouping "date")) (not today-tab)))
          (sections (bloom-agenda--sections visible list today grouping today-tab)))
-    (list :day (bloom-agenda--weekday today)
+    (list :day (jetpacs-dates-weekday today)
           :date (bloom-agenda--long-date today)
           :today-count (+ (length on-today)
                           (length (bloom-agenda--events-on visible today)))
@@ -987,7 +943,7 @@ DEADLINE, stamp steps forward by its repeater, leaving keywords alone."
              (concat "\\(?:" org-scheduled-string "\\|" org-deadline-string "\\) *\\(<[^>]+>\\)")
              (save-excursion (outline-next-heading) (point)) t)
         (let* ((start (match-beginning 1)) (end (match-end 1))
-               (stamp (bloom-agenda-parse-timestamp (match-string 1)))
+               (stamp (ebp-org-ts-parse (match-string 1)))
                (repeater (plist-get stamp :repeater)))
           (when (and repeater
                      (string-match "\\([.+]?\\+\\)\\([0-9]+\\)\\([hdwmy]\\)" repeater))
@@ -1005,8 +961,8 @@ DEADLINE, stamp steps forward by its repeater, leaving keywords alone."
                                (if (eq unit 'week) (* 7 n) n)
                                (if (eq unit 'week) 'day unit))
                            while (and (not (equal kind "+"))
-                                      (<= (bloom-org--date-delta
-                                           (plist-get (bloom-agenda-parse-timestamp
+                                      (<= (jetpacs-dates-delta
+                                           (plist-get (ebp-org-ts-parse
                                                        (buffer-string))
                                                       :date)
                                            today)
