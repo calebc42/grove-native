@@ -25,6 +25,9 @@
 (require 'ebp-org)
 (require 'jetpacs-widgets)
 (require 'jetpacs-design)
+(require 'jetpacs-org-dialogs)
+(require 'jetpacs-org-save)
+(require 'jetpacs-settings)
 (require 'bloom-core)
 (require 'bloom-design)
 (require 'bloom-library)
@@ -904,10 +907,10 @@ NOTES default to `bloom-agenda-notes' and TODAY to the current date."
 ;;;; Actions
 
 (defun bloom-agenda--persist (symbol value)
-  "Set lever SYMBOL to VALUE and save it, as Customize does."
-  (if (fboundp 'customize-save-variable)
-      (ignore-errors (customize-save-variable symbol value))
-    (set-default symbol value)))
+  "Set lever SYMBOL to VALUE and save it, as Customize does.
+A batch or `emacs -Q' session keeps the value for the session only."
+  (set-default symbol value)
+  (ignore-errors (jetpacs-settings-save-variable symbol value)))
 
 (defun bloom-agenda-on-tab (args params)
   "Show ARGS' tab and refresh PARAMS' surface."
@@ -954,22 +957,25 @@ NOTES default to `bloom-agenda-notes' and TODAY to the current date."
       'accepted)))
 
 (defun bloom-agenda--with-heading (args fn)
-  "Call FN at ARGS' heading in its Org buffer; return its value or `stale'."
+  "Call FN at ARGS' heading in its Org buffer; return its value or a status.
+The foundation's `jetpacs-org-heading-at-ref' resolves, saves through the
+save policy and classifies: `stale' or `rejected' replaces FN's value
+when the heading is gone, refused, or FN signals."
   (let* ((notebook-id (plist-get args :notebook-id))
          (heading-id (plist-get args :heading-id))
          (ref (and (stringp notebook-id) (stringp heading-id)
-                   (bloom-library-resolve-heading notebook-id heading-id))))
-    (if (null ref) 'stale
-      (let ((marker (ebp-org-resolve-ref ref)))
-        (unwind-protect
-            (with-current-buffer (marker-buffer marker)
-              (org-with-wide-buffer
-               (goto-char marker)
-               (org-back-to-heading t)
-               (prog1 (funcall fn)
-                 (save-buffer)
-                 (bloom-document--after-mutation notebook-id heading-id))))
-          (set-marker marker nil))))))
+                   (bloom-library-resolve-heading notebook-id heading-id)))
+         value)
+    (pcase (jetpacs-org-heading-at-ref
+            ref
+            (lambda ()
+              (org-back-to-heading t)
+              (setq value (funcall fn)))
+            (lambda (buffer)
+              (jetpacs-org-save-policy buffer)
+              (bloom-document--after-mutation notebook-id heading-id)))
+      ('accepted value)
+      (status status))))
 
 (defun bloom-agenda--advance-repeater ()
   "Move the heading at point's repeating plan to its next occurrence.
@@ -1032,26 +1038,19 @@ DEADLINE, stamp steps forward by its repeater, leaving keywords alone."
            (error (message "bloom: agenda toggle failed (%s)" (car err)) 'failed))))
     (pcase result
       ('stale 'stale)
-      ('failed 'rejected)
+      ((or 'failed 'rejected) 'rejected)
       (_ (jetpacs-app-defer-refresh params) 'accepted))))
 
 (defun bloom-agenda--move-to-today (note today)
-  "Rewrite NOTE's overdue SCHEDULED, or lone DEADLINE, to TODAY.
+  "Move NOTE's overdue SCHEDULED, or lone DEADLINE, to TODAY.
 Time of day, repeater and warning all survive the move."
   (bloom-agenda--with-heading
    (list :notebook-id (plist-get note :notebook-id)
          :heading-id (plist-get note :heading-id))
    (lambda ()
-     (let ((word (if (plist-get note :scheduled) org-scheduled-string
-                   org-deadline-string)))
-       (save-excursion
-         (when (re-search-forward
-                (concat (regexp-quote word)
-                        " *<\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [[:alpha:]]+\\)?\\)")
-                (save-excursion (outline-next-heading) (point)) t)
-           (replace-match (concat today " " (substring (bloom-agenda--weekday today) 0 3))
-                          t t nil 1)
-           t))))))
+     (jetpacs-org-heading-set-planning
+      (if (plist-get note :scheduled) "SCHEDULED" "DEADLINE") today)
+     t)))
 
 (defun bloom-agenda-on-move-overdue (_args params)
   "Move every overdue row to today and refresh PARAMS' surface."

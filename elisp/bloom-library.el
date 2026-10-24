@@ -18,6 +18,7 @@
 (require 'org)
 (require 'ebp-org)
 (require 'jetpacs-files)
+(require 'jetpacs-settings)
 (require 'jetpacs-org-reminders)
 (require 'bloom-core)
 
@@ -305,7 +306,7 @@ yesterday by name; a week or more is the abbreviated date."
   "Set SYMBOL to VALUE and save it with Customize when Emacs can.
 A batch or `emacs -Q' session keeps the value for the session only."
   (set symbol value)
-  (ignore-errors (customize-save-variable symbol value)))
+  (ignore-errors (jetpacs-settings-save-variable symbol value)))
 
 (defun bloom-library--apply-tree-defaults (records)
   "Choose the first-open folder expansion from notebook RECORDS, once.
@@ -1156,7 +1157,7 @@ projection.  Failure retains the last successful rows behind a safe error."
     (condition-case err
         (progn
           (setq bloom-library-favorite-ids next)
-          (customize-save-variable 'bloom-library-favorite-ids next)
+          (jetpacs-settings-save-variable 'bloom-library-favorite-ids next)
           (bloom-library-refresh)
           (member notebook-id next))
       (error
@@ -1173,7 +1174,7 @@ projection.  Failure retains the last successful rows behind a safe error."
     ;; The file move/rename has already completed.  A broken optional
     ;; Customize destination must not revise that durable verdict.
     (condition-case err
-        (customize-save-variable
+        (jetpacs-settings-save-variable
          'bloom-library-favorite-ids bloom-library-favorite-ids)
       (error
        (message "bloom-library: favorite migration persistence failed (%s)"
@@ -1238,7 +1239,7 @@ projection.  Failure retains the last successful rows behind a safe error."
     (setq bloom-library-favorite-ids
           (delete notebook-id (copy-sequence bloom-library-favorite-ids)))
     (condition-case err
-        (customize-save-variable
+        (jetpacs-settings-save-variable
          'bloom-library-favorite-ids bloom-library-favorite-ids)
       (error
        (message "bloom-library: favorite cleanup persistence failed (%s)"

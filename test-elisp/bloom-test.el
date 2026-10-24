@@ -1955,6 +1955,76 @@ checks, run from the foundation's applet tooling."
           (kill-buffer bloom-edit--buffer))))))
 
 
+;; The agenda's heading mutations run through the foundation's funnel.
+(ert-deftest bloom-agenda-heading-mutations-use-the-foundation-funnel ()
+  "Toggle and move-to-today resolve, mutate, save, refresh, and classify."
+  (let* ((root (make-temp-file "bloom-agenda-mutate" t))
+         (file (expand-file-name "tasks.org" root))
+         (org-directory root)
+         (org-agenda-files (list file))
+         (ebp-org-roots (list root))
+         (org-log-done nil)
+         (org-log-reschedule nil)
+         (org-todo-keywords '((sequence "TODO" "|" "DONE")))
+         (refreshed nil)
+         (mutated nil)
+         (refs nil))
+    (unwind-protect
+        (progn
+          (write-region
+           (concat "* TODO Water\nSCHEDULED: <2026-08-25 Tue 09:00 +1w -1d>\n"
+                   "* TODO Call\n")
+           nil file nil 'silent)
+          (setq refs
+                (list (cons "water" (list :file file :pos 1 :headline "Water"))
+                      (cons "call" (list :file file :pos 56
+                                         :headline "Call"))))
+          (cl-letf (((symbol-function 'bloom-library-resolve-heading)
+                     (lambda (_notebook heading)
+                       (cdr (assoc heading refs))))
+                    ((symbol-function 'bloom-document--after-mutation)
+                     (lambda (&rest args) (push args mutated)))
+                    ((symbol-function 'jetpacs-app-defer-refresh)
+                     (lambda (&rest _) (setq refreshed t))))
+            (should (eq (bloom-agenda--move-to-today
+                         '(:notebook-id "n" :heading-id "water"
+                           :scheduled t)
+                         "2026-09-01")
+                        t))
+            (should (equal mutated '(("n" "water"))))
+            (with-temp-buffer
+              (insert-file-contents file)
+              (should (search-forward
+                       "SCHEDULED: <2026-09-01 Tue 09:00 +1w -1d>" nil t)))
+            (should (eq (bloom-agenda-on-toggle
+                         '(:notebook-id "n" :heading-id "call") nil)
+                        'accepted))
+            (should refreshed)
+            (with-temp-buffer
+              (insert-file-contents file)
+              (should (search-forward "* DONE Call" nil t)))
+            ;; A swept heading is stale and nothing is saved or refreshed.
+            (setq refreshed nil mutated nil)
+            (should (eq (bloom-agenda-on-toggle
+                         '(:notebook-id "n" :heading-id "gone") nil)
+                        'stale))
+            (should (eq (bloom-agenda--move-to-today
+                         '(:notebook-id "n" :heading-id "gone") "2026-09-01")
+                        'stale))
+            ;; A failing mutation is rejected, not reported as done.
+            (cl-letf (((symbol-function 'org-todo)
+                       (lambda (&rest _) (error "Boom"))))
+              (should (eq (bloom-agenda-on-toggle
+                           '(:notebook-id "n" :heading-id "call") nil)
+                          'rejected)))
+            (should-not refreshed)
+            (should-not mutated)))
+      (dolist (buffer (buffer-list))
+        (when (equal (buffer-file-name buffer) (file-truename file))
+          (with-current-buffer buffer (set-buffer-modified-p nil))
+          (kill-buffer buffer)))
+      (delete-directory root t))))
+
 (provide 'bloom-test)
 ;;; bloom-test.el ends here
 

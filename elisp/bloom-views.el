@@ -19,6 +19,7 @@
 (require 'ebp-org)
 (require 'jetpacs-apps)
 (require 'jetpacs-dialog)
+(require 'jetpacs-settings)
 (require 'jetpacs-org-reminders)
 (require 'jetpacs-shell)
 (require 'jetpacs-components)
@@ -192,7 +193,7 @@ built-in searches, written as Org matches."
     (condition-case err
         (progn
           (setq bloom-saved-views next)
-          (customize-save-variable 'bloom-saved-views next)
+          (jetpacs-settings-save-variable 'bloom-saved-views next)
           t)
       (error
        (setq bloom-saved-views old)
