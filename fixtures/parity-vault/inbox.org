@@ -1,0 +1,13 @@
+#+TITLE: Inbox
+
+* Idea: a garden journal
+Keep one note per bed, with planting dates.
+* Read: "The Shape of Design"
+Recommended by Sam.
+* TODO Buy printer ink                                               :errands:
+* Link to check
+https://orgmode.org/manual/
+* Quote
+#+BEGIN_QUOTE
+Simplicity is the ultimate sophistication.
+#+END_QUOTE

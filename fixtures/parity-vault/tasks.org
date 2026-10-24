@@ -1,0 +1,17 @@
+#+TITLE: Tasks
+
+* NEXT [#A] Reply to vendor contract redlines                          :work:
+DEADLINE: <2026-10-21 Wed>
+Legal flagged section 4.2 and the indemnity clause.
+* TODO [#B] Renew car registration                              :errands:work:
+SCHEDULED: <2026-10-21 Wed>
+* TODO [#A] Finish Q3 roadmap deck                              :work:planning:
+SCHEDULED: <2026-10-23 Fri>
+Slides 4 through 9 still need numbers from finance.
+* TODO Call the dentist                                              :health:
+SCHEDULED: <2026-10-27 Tue 14:00>
+* TODO [#C] Clean the garage                                           :home:
+SCHEDULED: <2026-10-31 Sat>
+* DONE Submit expense report                                            :work:
+CLOSED: [2026-10-19 Mon 16:30] SCHEDULED: <2026-10-19 Mon>
+* WAITING Hear back from the plumber                                   :home:

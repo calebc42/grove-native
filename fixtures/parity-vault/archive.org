@@ -1,0 +1,10 @@
+#+TITLE: Archive
+
+* DONE Old task one
+CLOSED: [2026-08-16 Sun 10:00]
+* DONE Old task two
+CLOSED: [2026-08-16 Sun 10:01]
+* DONE Old task three
+CLOSED: [2026-08-16 Sun 10:02]
+* DONE Old task four
+CLOSED: [2026-08-16 Sun 10:03]

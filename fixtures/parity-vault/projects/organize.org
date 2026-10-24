@@ -1,0 +1,8 @@
+#+TITLE: Organize
+
+* Weekly review                                                     :routine:
+SCHEDULED: <2026-10-26 Mon +1w>
+* Monthly review                                                    :routine:
+SCHEDULED: <2026-11-01 Sun +1m>
+* TODO Sort the photo library
+* TODO Label the pantry

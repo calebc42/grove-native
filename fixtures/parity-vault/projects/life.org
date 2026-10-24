@@ -1,0 +1,9 @@
+#+TITLE: Life
+
+* Health
+** TODO Schedule physical
+* Finance
+** TODO Rebalance accounts
+* Home
+** TODO Fix the fence gate
+* Friends

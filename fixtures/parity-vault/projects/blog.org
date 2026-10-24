@@ -1,0 +1,6 @@
+#+TITLE: Blog
+
+* TODO Draft: why plain text wins
+* TODO Draft: a year with org-mode
+* DONE Publish: notes on syncthing
+CLOSED: [2026-10-20 Tue 12:00]

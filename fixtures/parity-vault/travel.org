@@ -1,0 +1,36 @@
+#+TITLE: Travel
+#+STARTUP: showall
+
+Trips, bookings, and packing lists.
+
+* Portugal trip                                                      :travel:
+:PROPERTIES:
+:CREATED: [2026-08-02 Sun]
+:END:
+Two weeks in September, splitting time between Lisbon and the Algarve. Flights are booked, working out the rest of the itinerary below.
+** DONE Book flights                                         :travel:flights:
+CLOSED: [2026-08-10 Mon 09:12]
+SFO -> LIS via Newark, TAP Air Portugal. Confirmation code JX4K19.
+** TODO [#A] Book Lisbon apartment                           :travel:lodging:
+DEADLINE: <2026-08-30 Sun>
+Found a nice Alfama place on the map, need to confirm dates with the host before it gets booked by someone else.
+** TODO Reserve table at Belcanto                               :travel:food:
+SCHEDULED: <2026-09-05 Sat 09:00-11:00 +1w> DEADLINE: <2026-09-26 Sat 09:00-11:00 +1m>
+:LOGBOOK:
+- Note taken on [2026-08-12 Wed 18:40] \\
+  Called once, no answer.
+- Note taken on [2026-08-14 Fri 10:05] \\
+  Email sent to reservations.
+:END:
+Tasting menu, need to book 6+ weeks out. Ask for a window seat.
+** NEXT [#B] Rent a car for the Algarve leg                          :travel:
+Compare Europcar vs local agencies. Need something small for the old town streets.
+** TODO Pack                                                         :travel:
+- [ ] Passport + spare copy
+- [ ] Adapter (Type F)
+- [X] Sunscreen
+* Weekend in Tahoe                                                   :travel:
+** DONE Drive up Friday night                                        :travel:
+CLOSED: [2026-07-18 Sat 22:10]
+** TODO Book the cabin                                               :travel:
+SCHEDULED: <2026-10-24 Sat>
