@@ -580,8 +580,10 @@ Foundation renderer takes its whole appearance from them."
         (should (assoc bloom-capture-widget-surface jetpacs-shell--roots))
         (should (assoc bloom-agenda-widget-surface jetpacs-shell--roots))
         (should (jetpacs--owned-names "hook" bloom-owner))
+        (should (jetpacs-reminders-projection-p bloom-owner))
         (bloom-unregister)
         (should-not (jetpacs--owned-names "hook" bloom-owner))
+        (should-not (jetpacs-reminders-projection-p bloom-owner))
         (dolist (entry '((after-save-hook . bloom-org--after-save)
                          (bloom-org-after-refresh-hook . bloom--schedule-pushes)
                          (bloom-org-after-refresh-hook
@@ -695,21 +697,30 @@ Foundation renderer takes its whole appearance from them."
                  'stale))))))
 
 (ert-deftest bloom-reminder-sync-preserves-confirmed-set-on-scan-failure ()
-  "A failed Org scan never becomes authority to clear Room's durable set."
-  (let ((bloom-reminders-enabled t)
-        (bloom-reminders--last-reminders '((:id "bloom-reminder-old")))
-        (calls 0))
+  "A failed Org scan never becomes authority to clear Room's durable set;
+turning reminders off does clear it."
+  (let ((jetpacs-reminders--projections (make-hash-table :test #'equal))
+        (bloom-reminders-enabled t)
+        (calls nil))
     (cl-letf (((symbol-function 'jetpacs-connected-p) (lambda () t))
               ((symbol-function 'jetpacs-granted-p) (lambda (&rest _) t))
               ((symbol-function 'jetpacs-error-label) (lambda (_) "error"))
               ((symbol-function 'bloom-reminders--projection)
                (lambda () (error "private path")))
               ((symbol-function 'jetpacs-reminders-set)
-               (lambda (&rest _) (cl-incf calls))))
-      (bloom-reminders--sync-now)
-      (should (zerop calls))
-      (should (equal bloom-reminders--last-reminders
-                     '((:id "bloom-reminder-old")))))))
+               (cl-function
+                (lambda (reminders &key owner callback)
+                  (push (cons owner reminders) calls)
+                  (funcall callback 0 nil)))))
+      (unwind-protect
+          (progn
+            (bloom-reminders-register)
+            (jetpacs-reminders-sync-now bloom-owner)
+            (should-not calls)
+            (setq bloom-reminders-enabled nil)
+            (jetpacs-reminders-sync-now bloom-owner)
+            (should (equal calls (list (list bloom-owner)))))
+        (bloom-reminders-unregister)))))
 
 (ert-deftest bloom-library-refresh-builds-a-private-nested-tree ()
   "Nested notebook paths become opaque, restart-rebuildable tree records."

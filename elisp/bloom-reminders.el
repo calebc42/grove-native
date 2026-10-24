@@ -17,6 +17,7 @@
 (require 'ebp-org)
 (require 'jetpacs-device)
 (require 'jetpacs-org-reminders)
+(require 'jetpacs-reminders)
 (require 'jetpacs-shell)
 (require 'jetpacs-surfaces)
 (require 'jetpacs-widgets)
@@ -46,12 +47,6 @@
           (const :tag "1 hour" 60)
           (const :tag "1 day" 1440))
   :group 'bloom)
-
-(defvar bloom-reminders--last-reminders 'unset
-  "Last Bloom reminder set confirmed by the Companion.")
-
-(defvar bloom-reminders--sync-timer nil
-  "Pending coalesced Bloom reminder synchronization timer.")
 
 (defconst bloom-reminders--action-ttl-seconds 604800
   "Maximum durable lifetime of an offline reminder action.")
@@ -152,48 +147,9 @@ authoritative empty set."
            (jetpacs-org-mode-reminder-candidates
             bloom-reminder-horizon-hours nil bloom-reminder-lead-minutes)))))
 
-(defun bloom-reminders--sync-now ()
-  "Replace Bloom's durable device reminder set when connected and granted."
-  (setq bloom-reminders--sync-timer nil)
-  (when (and (jetpacs-connected-p)
-             (jetpacs-granted-p "reminders.owner"))
-    (when-let* ((scan
-                 (condition-case err
-                     (cons t (if bloom-reminders-enabled
-                                 (bloom-reminders--projection)
-                               nil))
-                   (error
-                    (message "bloom-reminders: scan failed (%s)"
-                             (jetpacs-error-label err))
-                    nil))))
-      (let ((reminders (cdr scan)))
-        (unless (equal reminders bloom-reminders--last-reminders)
-          (condition-case err
-              (jetpacs-reminders-set
-               reminders :owner bloom-owner
-               :callback
-               (lambda (_count error)
-                 (unless error
-                   (setq bloom-reminders--last-reminders reminders))))
-            (error
-             (message "bloom-reminders: sync failed (%s)"
-                      (jetpacs-error-label err)))))))))
-
-(defun bloom-reminders--run-scheduled-sync ()
-  "Run and clear a coalesced reminder synchronization."
-  (setq bloom-reminders--sync-timer nil)
-  (bloom-reminders--sync-now))
-
 (defun bloom-reminders-schedule-sync (&rest _ignored)
   "Coalesce reminder reconciliation after Org, setting, or session changes."
-  (unless (timerp bloom-reminders--sync-timer)
-    (setq bloom-reminders--sync-timer
-          (if (jetpacs-in-action-p)
-              (jetpacs-flow-continue
-               #'bloom-reminders--run-scheduled-sync)
-            (run-with-idle-timer
-             0.1 nil #'bloom-reminders--run-scheduled-sync))))
-  t)
+  (jetpacs-reminders-schedule-sync bloom-owner))
 
 (defun bloom-reminders--coordinates-from-action (args)
   "Resolve and return ARGS' authenticated opaque reminder coordinates."
@@ -252,8 +208,9 @@ authoritative empty set."
                        #'bloom-reminders--on-reschedule)
     (jetpacs-add-hook 'bloom-org-after-refresh-hook
                       #'bloom-reminders-schedule-sync)
-    (jetpacs-add-hook 'jetpacs-shell-after-push-hook
-                      #'bloom-reminders-schedule-sync))
+    (jetpacs-reminders-define-projection
+     bloom-owner #'bloom-reminders--projection
+     :enabled-p (lambda () bloom-reminders-enabled)))
   (bloom-reminders-schedule-sync)
   t)
 
@@ -263,12 +220,7 @@ The Companion's accepted set is deliberately not cleared as an unload side
 effect; disabling reminders through settings sends an explicit empty set."
   (jetpacs-remove-hook 'bloom-org-after-refresh-hook
                        #'bloom-reminders-schedule-sync)
-  (jetpacs-remove-hook 'jetpacs-shell-after-push-hook
-                       #'bloom-reminders-schedule-sync)
-  (when (timerp bloom-reminders--sync-timer)
-    (cancel-timer bloom-reminders--sync-timer))
-  (setq bloom-reminders--sync-timer nil
-        bloom-reminders--last-reminders 'unset)
+  (jetpacs-reminders-remove-projection bloom-owner)
   (dolist (verb bloom-reminders--verbs) (jetpacs-undefaction verb))
   t)
 
