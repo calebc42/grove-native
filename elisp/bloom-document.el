@@ -397,9 +397,21 @@ Under the design runtime both modes are the Android app's own screens."
       (bloom-read-on-drawer (bloom-document--current-info) args params)
     (ebp-org-unresolved 'stale)))
 
+(defun bloom-document--note-link-p (info target)
+  "Whether TARGET is a link target written in document INFO's note.
+Read mode names a link by its target text, so this is the check that the
+device asks for a link the note shows, not one of its own making: Org
+would open any link type it is handed."
+  (and (stringp target)
+       (not (string-empty-p target))
+       (not (string-search "]" target))
+       (string-search (concat "[[" target "]") (or (plist-get info :content) ""))
+       t))
+
 (defun bloom-document--on-read-link (args params)
   "Follow ARGS' Org link target from the current note on PARAMS' surface.
-Org resolves the link in the note's own buffer: a web link goes to the
+The target must be one the note itself contains, else `rejected'.  Org
+resolves the link in the note's own buffer: a web link goes to the
 browser through `browse-url', and a destination in a notebook opens in
 Bloom through the same presenter the reader used."
   (let ((target (plist-get args :target))
@@ -408,6 +420,8 @@ Bloom through the same presenter the reader used."
       (condition-case nil
           (let* ((info (bloom-document--current-info))
                  (source (get-buffer (plist-get info :buffer))))
+            (unless (bloom-document--note-link-p info target)
+              (signal 'ebp-org-refused (list 'link-not-in-note)))
             (jetpacs-flow-continue
              (lambda ()
                (condition-case err
@@ -423,7 +437,8 @@ Bloom through the same presenter the reader used."
                   (message "bloom: link failed (%s)" (car err))
                   (jetpacs-shell-notify "Link could not be opened" surface)))))
             'accepted)
-        (ebp-org-unresolved 'stale)))))
+        (ebp-org-unresolved 'stale)
+        (ebp-org-refused 'rejected)))))
 
 (defun bloom-document--on-open (args params)
   "Open a document named by opaque ARGS on PARAMS' surface."

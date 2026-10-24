@@ -2042,6 +2042,30 @@ checks, run from the foundation's applet tooling."
           (kill-buffer buffer)))
       (delete-directory root t))))
 
+(ert-deftest bloom-read-link-follows-only-links-the-note-contains ()
+  "A link target from the device must be written in the current note."
+  (with-temp-buffer
+    (let ((info (list :buffer (buffer-name)
+                      :content "* Trip\nSee [[https://example.com][site]] and [[file:a.org]].\n"))
+          continued)
+      (cl-letf (((symbol-function 'bloom-document--current-info)
+                 (lambda () info))
+                ((symbol-function 'jetpacs-flow-continue)
+                 (lambda (fn) (push fn continued))))
+        (should (eq (bloom-document--on-read-link
+                     '(:target "https://example.com") '(:surface "app:bloom"))
+                    'accepted))
+        (should (eq (bloom-document--on-read-link
+                     '(:target "file:a.org") '(:surface "app:bloom"))
+                    'accepted))
+        (should (= (length continued) 2))
+        (dolist (target '("shell:touch /tmp/pwned" "elisp:(kill-emacs)"
+                          "https://example.com][x" "https://example"))
+          (should (eq (bloom-document--on-read-link
+                       (list :target target) '(:surface "app:bloom"))
+                      'rejected)))
+        (should (= (length continued) 2))))))
+
 (provide 'bloom-test)
 ;;; bloom-test.el ends here
 
