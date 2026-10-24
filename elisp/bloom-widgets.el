@@ -87,40 +87,49 @@ INTERACTIVE non-nil gives each row a durable open action."
     (apply #'jetpacs-lazy-column
            (append children (list :spacing 6 :content-padding 8)))))
 
+(defun bloom-widgets--agenda-document (title interactive empty)
+  "Bloom's Agenda widget SurfaceSpec titled TITLE, fitted to its budget.
+INTERACTIVE gives rows their actions; EMPTY is the empty-state node.  The
+full list sheds rows, from `bloom-widget-agenda-item-limit' down, until
+the whole document, size variants included, fits the widget profile's
+`max_nodes': the receiver refuses a widget over it entirely."
+  (let ((snapshot (bloom-org-snapshot))
+        (budget (jetpacs-shell-target-limit bloom-agenda-widget-surface
+                                            :max_nodes))
+        spec)
+    (cl-loop
+     for limit downfrom bloom-widget-agenda-item-limit to 1
+     do (setq spec
+              (jetpacs-widget-surface
+               title
+               (bloom-widgets--body snapshot limit interactive)
+               :empty empty
+               ;; Capture is independent of the agenda projection: offline,
+               ;; a wake action durably reaches the Org capture engine
+               ;; after reconnection.
+               :header-action (bloom-ui-capture-action t)
+               :size-variants
+               (list
+                (jetpacs-widget-size-variant
+                 280 160 (bloom-widgets--body snapshot (min 4 limit) interactive))
+                (jetpacs-widget-size-variant
+                 180 80 (bloom-widgets--body snapshot 1 interactive)))))
+     until (or (null budget) (<= (jetpacs-shell-node-count spec) budget)))
+    spec))
+
 (defun bloom-widgets-agenda-surface ()
   "Build Bloom's live Org-backed Agenda widget SurfaceSpec."
-  (let ((snapshot (bloom-org-snapshot)))
-    (jetpacs-widget-surface
-     "Agenda"
-     (bloom-widgets--body snapshot bloom-widget-agenda-item-limit t)
-     :empty (jetpacs-empty-state
-             :icon "event_available" :title "Nothing scheduled"
-             :action-label "Open Bloom"
-             :on-tap (jetpacs-surface-open bloom-app-surface))
-     :header-action (bloom-ui-capture-action t)
-     :size-variants
-     (list
-      (jetpacs-widget-size-variant
-       280 160 (bloom-widgets--body snapshot 4 t))
-      (jetpacs-widget-size-variant
-       180 80 (bloom-widgets--body snapshot 1 t))))))
+  (bloom-widgets--agenda-document
+   "Agenda" t
+   (jetpacs-empty-state
+    :icon "event_available" :title "Nothing scheduled"
+    :action-label "Open Bloom"
+    :on-tap (jetpacs-surface-open bloom-app-surface))))
 
 (defun bloom-widgets-agenda-stale-surface ()
   "Build Bloom's non-actionable offline Agenda widget SurfaceSpec."
-  (let ((snapshot (bloom-org-snapshot)))
-    (jetpacs-widget-surface
-     "Agenda · Offline"
-     (bloom-widgets--body snapshot bloom-widget-agenda-item-limit nil)
-     :empty (jetpacs-text "Open Bloom to reconnect")
-     ;; Capture is independent of the stale agenda projection: a wake action
-     ;; durably reaches the existing Org capture engine after reconnection.
-     :header-action (bloom-ui-capture-action t)
-     :size-variants
-     (list
-      (jetpacs-widget-size-variant
-       280 160 (bloom-widgets--body snapshot 4 nil))
-      (jetpacs-widget-size-variant
-       180 80 (bloom-widgets--body snapshot 1 nil))))))
+  (bloom-widgets--agenda-document
+   "Agenda · Offline" nil (jetpacs-text "Open Bloom to reconnect")))
 
 (defun bloom-widgets-register ()
   "Register Bloom's two generic widget roots idempotently."

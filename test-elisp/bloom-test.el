@@ -484,6 +484,20 @@ Foundation renderer takes its whole appearance from them."
   (should (equal (cdr (assoc "menu.item-label" bloom-design-component-styles))
                  '("typography.label-large"))))
 
+(ert-deftest bloom-widgets-agenda-sheds-rows-to-fit-the-widget-budget ()
+  "The receiver refuses a widget over its profile's `max_nodes', so the
+full list sheds rows until the whole document, variants included, fits."
+  (let ((bloom-org--snapshot (bloom-test--snapshot))
+        (bloom-widget-agenda-item-limit 10))
+    (let ((full (jetpacs-shell-node-count (bloom-widgets-agenda-surface))))
+      (cl-letf (((symbol-function 'jetpacs-shell-target-limit)
+                 (lambda (_surface limit &optional _client)
+                   (and (eq limit :max_nodes) (- full 5)))))
+        (dolist (spec (list (bloom-widgets-agenda-surface)
+                            (bloom-widgets-agenda-stale-surface)))
+          (should (<= (jetpacs-shell-node-count spec) (- full 5)))
+          (should (jetpacs-check-profile spec 'widget)))))))
+
 (ert-deftest bloom-widgets-are-live-profile-valid-snapshot-projections ()
   "Capture and Agenda widgets stay inside the negotiated Glance vocabulary."
   (let ((bloom-org--snapshot (bloom-test--snapshot)))
