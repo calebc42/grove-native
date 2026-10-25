@@ -1167,6 +1167,8 @@ tokens; nil turns a role default off.")
      ("bloom.drawer-active"
       . ,(jetpacs-design-style
           `(("background_color" . ,(bloom-design--token "color.accent-soft")))))
+     ;; The modal drawer keeps Material's own scrim.
+     ("bloom.scrim" . ,(jetpacs-design-style nil))
      ;; Outline: the faded PREFACE band, 44 dp glyph buttons, the 54 dp
      ;; add-note FAB, and the flat heading row on the screen color.
      ("bloom.preface"
@@ -1309,6 +1311,8 @@ never sends a style reference the receiver cannot resolve."
     ("chrome.rail-label" . ("typography.label"))
     ("chrome.rail-indicator" . ("bloom.band"))
     ("chrome.drawer" . ("bloom.drawer"))
+    ("chrome.scrim" . ("bloom.scrim"))
+    ("chrome.dialog" . ("bloom.scrim"))
     ("chrome.snackbar" . ("bloom.popup"))
     ("badge.container" . ("bloom.chip"))
     ("badge.label" . ("typography.metadata"))
@@ -1331,6 +1335,8 @@ never sends a style reference the receiver cannot resolve."
     ("choice.label" . ("typography.body"))
     ("panel.container" . ("bloom.surface"))
     ("panel.label" . ("typography.section-title"))
+    ("picker.container" . ("bloom.interactive" "bloom.surface"))
+    ("picker.label" . ("typography.label"))
     ("tabs.container" . ("bloom.surface"))
     ("tabs.item" . ("bloom.interactive"))
     ("tabs.indicator" . ("bloom.indicator"))
