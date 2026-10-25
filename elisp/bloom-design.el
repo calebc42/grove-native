@@ -1312,6 +1312,7 @@ never sends a style reference the receiver cannot resolve."
     ("chrome.rail-indicator" . ("bloom.band"))
     ("chrome.drawer" . ("bloom.drawer"))
     ("chrome.scrim" . ("bloom.scrim"))
+    ("chrome.bottom-bar" . ("bloom.scrim"))
     ("chrome.dialog" . ("bloom.scrim"))
     ("chrome.snackbar" . ("bloom.popup"))
     ("badge.container" . ("bloom.chip"))
