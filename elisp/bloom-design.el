@@ -901,23 +901,12 @@ card and rows."
 A profile holds at most 256 styles, so styles used by one screen live in
 a scope on that screen.  The receiver also caps the styles in effect, the
 profile's and the scope's together, at 256, so STYLES must stay small.
-The scope re-declares the active profile's color tokens, which its
-styles name, so every preset still colors them."
-  (let ((profile (jetpacs-design-active-profile bloom-design-profile-id)))
-    (jetpacs-design-scope
-     (seq-filter (lambda (token) (string-prefix-p "color." (car token)))
-                 (bloom-design--profile-pairs (plist-get profile :tokens)))
-     styles children)))
-
-(defun bloom-design--profile-pairs (map)
-  "Return identifier MAP, an alist or plist, as (NAME . VALUE) pairs."
-  (cond
-   ((and (consp map) (consp (car map))) map)
-   ((hash-table-p map)
-    (let (pairs) (maphash (lambda (k v) (push (cons k v) pairs)) map)
-         (nreverse pairs)))
-   (t (cl-loop for (key value) on map by #'cddr
-               collect (cons (string-remove-prefix ":" (symbol-name key)) value)))))
+The styles name the active profile's color tokens, which the scope
+inherits from the profile scope it is nested in (`:inherit'): nothing is
+re-declared, and every preset still colors them."
+  (jetpacs-design-scope
+   nil styles children
+   :inherit (jetpacs-design-active-profile bloom-design-profile-id)))
 
 (defun bloom-design-settings-styles ()
   "Return Settings' boxes: group card, segmented control, Material switch."
