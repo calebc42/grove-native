@@ -1329,6 +1329,8 @@ never sends a style reference the receiver cannot resolve."
     ("list-item.subtitle" . ("typography.caption" "bloom.muted"))
     ("swipe.cell" . ("bloom.swipe-cell"))
     ("swipe.label" . ("typography.metadata"))
+    ("swipe.popup" . ("bloom.popup"))
+    ("swipe.popup-button" . ("bloom.swipe-cell"))
     ("action.container" . ("bloom.interactive" "bloom.action"))
     ("action.label" . ("typography.label-large"))
     ("choice.container" . ("bloom.interactive"))
