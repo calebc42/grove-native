@@ -1365,6 +1365,7 @@ never sends a style reference the receiver cannot resolve."
     ("editor.chromeless" . ("bloom.screen"))
     ("editor.text" . ("typography.code"))
     ("editor.gutter" . ("typography.metadata" "bloom.muted"))
+    ("editor.placeholder" . ("typography.code" "bloom.muted"))
     ("editor.toolbar" . ("bloom.surface"))
     ("editor.toolbar-item" . ("bloom.interactive" "typography.label"))
     ("editor.sync-status" . ("typography.metadata"))
