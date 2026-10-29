@@ -1310,6 +1310,8 @@ never sends a style reference the receiver cannot resolve."
     ("chrome.tab-indicator" . ("bloom.indicator"))
     ("chrome.rail-label" . ("typography.label"))
     ("chrome.rail-indicator" . ("bloom.band"))
+    ;; The rail stays on Bloom's page; the baseline's lifted rail is not Bloom's look.
+    ("chrome.rail" . ("bloom.screen"))
     ("chrome.drawer" . ("bloom.drawer"))
     ("chrome.scrim" . ("bloom.scrim"))
     ("chrome.bottom-bar" . ("bloom.scrim"))
